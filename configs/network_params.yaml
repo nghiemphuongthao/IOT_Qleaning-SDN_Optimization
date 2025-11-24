@@ -1,0 +1,61 @@
+topology:
+  type: "hierarchical_star"
+  core_switch: "s1"
+  edge_switches: ["s2", "s3", "s4", "s5"]
+  
+devices:
+  servers:
+    - name: "main_server"
+      ip: "10.0.1.10"
+      type: "data_processor"
+      
+    - name: "backup_server" 
+      ip: "10.0.1.11"
+      type: "backup_storage"
+      
+  gateways:
+    - name: "internet_gateway"
+      ip: "10.0.1.1"
+      type: "wan_gateway"
+      
+  iot_devices:
+    - group: "smart_home"
+      devices:
+        - name: "motion_sensor_1"
+          ip: "10.0.2.101"
+          traffic_pattern: "event_driven"
+          
+        - name: "temperature_sensor_1" 
+          ip: "10.0.2.102"
+          traffic_pattern: "periodic"
+          
+    - group: "industrial_iot"
+      devices:
+        - name: "pressure_sensor"
+          ip: "10.0.3.103"
+          traffic_pattern: "real_time"
+          
+        - name: "vibration_sensor"
+          ip: "10.0.3.104"
+          traffic_pattern: "real_time"
+          
+    - group: "healthcare"
+      devices:
+        - name: "heart_monitor"
+          ip: "10.0.4.105"
+          traffic_pattern: "critical"
+          
+        - name: "blood_pressure"
+          ip: "10.0.4.106"
+          traffic_pattern: "critical"
+
+links:
+  bandwidth:
+    server_links: "100Mbps"
+    switch_links: "50Mbps" 
+    iot_links: "10Mbps"
+    
+  latency:
+    server_links: "1ms"
+    switch_links: "2ms"
+    iot_links: "5ms"

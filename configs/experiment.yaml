@@ -1,0 +1,67 @@
+project:
+  name: "IoT-SDN-QLEARNING-OPTIMIZATION"
+  version: "1.0.0"
+  description: "Đồ án tốt nghiệp: Tối ưu hóa mạng IoT sử dụng SDN và Q-learning"
+
+experiment:
+  phases:
+    - name: "baseline"
+      description: "Mạng IoT thông thường không có optimization"
+      duration: 300
+      
+    - name: "ryu_sdn" 
+      description: "Mạng IoT với SDN controller"
+      duration: 300
+      
+    - name: "qlearning_optimized"
+      description: "Mạng IoT với SDN + Q-learning optimization"
+      duration: 600
+
+network:
+  topology:
+    name: "iot_hierarchical"
+    switches: 5
+    iot_devices: 10
+    servers: 2
+    gateways: 1
+    
+  addressing:
+    server_subnet: "10.0.1.0/24"
+    iot_subnet: "10.0.2.0/24"
+    controller_ip: "172.20.0.10"
+
+qlearning:
+  training:
+    episodes: 1000
+    steps_per_episode: 100
+    learning_rate: 0.001
+    discount_factor: 0.95
+    exploration:
+      initial: 1.0
+      min: 0.01
+      decay: 0.995
+    
+  state_space:
+    features:
+      - "throughput"
+      - "latency" 
+      - "packet_loss"
+      - "link_utilization"
+      - "active_flows"
+      
+  action_space:
+    actions:
+      - "optimize_shortest_path"
+      - "load_balance_links"
+      - "qos_prioritization"
+      - "traffic_rerouting"
+
+metrics:
+  collection_interval: 5
+  metrics_to_track:
+    - "throughput"
+    - "latency"
+    - "packet_loss" 
+    - "jitter"
+    - "energy_consumption"
+    - "qos_metrics"

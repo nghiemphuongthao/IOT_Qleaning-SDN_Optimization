@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  ryu-controller:
+    build:
+      context: ./docker/ryu-python38
+      dockerfile: Dockerfile
+    container_name: ryu-controller
+    ports:
+      - "6633:6633"
+      - "8080:8080"
+    volumes:
+      - ./src/ryu_controller:/app
+      - ./results:/app/results
+      - ./logs:/app/logs
+    networks:
+      sdn-net:
+        ipv4_address: 172.20.0.10
+    command: ryu-manager /app/sdn_controller.py --ofp-tcp-listen-port 6633 --wsapi-port 8080
+
+  mininet-topology:
+    build:
+      context: ./docker/mininet-python310
+      dockerfile: Dockerfile
+    container_name: mininet-topology
+    privileged: true
+    volumes:
+      - ./src:/app/src
+      - ./results:/app/results
+      - ./scripts:/app/scripts
+      - ./logs:/app/logs
+    networks:
+      sdn-net:
+        ipv4_address: 172.20.0.20
+    depends_on:
+      - ryu-controller
+    command: tail -f /dev/null
+
+  qlearning-agent:
+    build:
+      context: ./docker/qlearning-python39
+      dockerfile: Dockerfile
+    container_name: qlearning-agent
+    volumes:
+      - ./src:/app/src
+      - ./results:/app/results
+      - ./configs:/app/configs
+      - ./models:/app/models
+      - ./logs:/app/logs
+    networks:
+      sdn-net:
+        ipv4_address: 172.20.0.30
+    depends_on:
+      - ryu-controller
+    command: python3 /app/src/qlearning_agent.py
+
+networks:
+  sdn-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
