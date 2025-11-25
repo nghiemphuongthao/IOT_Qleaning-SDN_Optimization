@@ -6,7 +6,10 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install ryu==4.34
+# Cài đặt Ryu và eventlet phiên bản tương thích
+RUN pip install --upgrade pip \
+    && pip install "eventlet==0.30.2" \
+    && pip install ryu==4.34
 
 WORKDIR /app
 
