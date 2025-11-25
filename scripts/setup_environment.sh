@@ -20,13 +20,18 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-if ! command -v docker-compose &> /dev/null; then
+# Check Docker Compose (legacy binary or new plugin)
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
     print_error "Docker Compose is not installed. Please install Docker Compose."
     exit 1
 fi
 
 print_status "Building Docker images..."
-docker-compose build
+$DOCKER_COMPOSE build
 
 print_status "Creating project directories..."
 mkdir -p results/{baseline,ryu_sdn,qlearning_optimized,comparison}
@@ -39,7 +44,7 @@ chmod +x scripts/*.py
 chmod +x scripts/*.sh
 
 print_status "Testing Docker setup..."
-docker-compose up -d
+$DOCKER_COMPOSE up -d
 sleep 10
 
 # Test services
@@ -52,7 +57,7 @@ for service in "${services[@]}"; do
     fi
 done
 
-docker-compose down
+$DOCKER_COMPOSE down
 
 print_status "================================================"
 print_status "SETUP COMPLETED SUCCESSFULLY!"
