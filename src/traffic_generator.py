@@ -63,8 +63,8 @@ class IoTTrafficGenerator:
         self.running = True
         start_time = time.time()
         
-        print(f"🚦 Starting IoT traffic simulation for {duration} seconds")
-        print(f"📱 Devices: {list(self.device_patterns.keys())}")
+        print(f" Starting IoT traffic simulation for {duration} seconds")
+        print(f" Devices: {list(self.device_patterns.keys())}")
         
         # Tạo thread cho mỗi device
         for device_name, pattern_name in self.device_patterns.items():
@@ -80,9 +80,9 @@ class IoTTrafficGenerator:
                     self.threads.append(thread)
                     print(f"  → {device_name}: {pattern_name} traffic")
                 else:
-                    print(f"  ❌ Device {device_name} not found in network")
+                    print(f"  Device {device_name} not found in network")
             except Exception as e:
-                print(f"  ❌ Error starting traffic for {device_name}: {e}")
+                print(f"  Error starting traffic for {device_name}: {e}")
         
         # Chờ kết thúc
         try:
@@ -92,10 +92,10 @@ class IoTTrafficGenerator:
                 # Hiển thị progress mỗi 30s
                 elapsed = time.time() - start_time
                 if int(elapsed) % 30 == 0:
-                    print(f"⏰ Traffic running: {int(elapsed)}/{duration}s")
+                    print(f" Traffic running: {int(elapsed)}/{duration}s")
                     
         except KeyboardInterrupt:
-            print("\n🛑 Traffic generation interrupted")
+            print("\nTraffic generation interrupted")
         finally:
             self.stop_traffic()
     
@@ -124,7 +124,7 @@ class IoTTrafficGenerator:
                 time.sleep(interval)
                 
             except Exception as e:
-                print(f"❌ Traffic error for {host.name}: {e}")
+                print(f" Traffic error for {host.name}: {e}")
                 break
     
     def _send_udp_traffic(self, host, dest_ip, size):
@@ -134,7 +134,7 @@ class IoTTrafficGenerator:
             # Trong thực tế có thể dùng iperf hoặc custom UDP client
             host.cmd(f'ping -c 1 -s {size} {dest_ip} > /dev/null 2>&1 &')
         except Exception as e:
-            print(f"❌ UDP traffic error from {host.name}: {e}")
+            print(f" UDP traffic error from {host.name}: {e}")
     
     def _send_tcp_traffic(self, host, dest_ip, size):
         """Gửi TCP traffic"""  
@@ -143,7 +143,7 @@ class IoTTrafficGenerator:
             # Giả lập gửi dữ liệu TCP
             host.cmd(f'curl -s -o /dev/null http://{dest_ip}:8080 --max-time 1 > /dev/null 2>&1 &')
         except Exception as e:
-            print(f"❌ TCP traffic error from {host.name}: {e}")
+            print(f" TCP traffic error from {host.name}: {e}")
     
     def _log_traffic(self, source, destination, size, pattern):
         """Log traffic ra file"""
@@ -160,14 +160,14 @@ class IoTTrafficGenerator:
             with open('results/traffic_log.json', 'a') as f:
                 f.write(json.dumps(log_entry) + '\n')
         except Exception as e:
-            print(f"❌ Error logging traffic: {e}")
+            print(f" Error logging traffic: {e}")
     
     def stop_traffic(self):
         """Dừng tất cả traffic"""
         self.running = False
         for thread in self.threads:
             thread.join(timeout=1)
-        print("🛑 All traffic stopped")
+        print(" All traffic stopped")
 
 def generate_ddos_attack(net, target_ip='10.0.1.10', duration=60):
     """Tạo DDoS attack scenario để test Q-learning"""
@@ -185,7 +185,7 @@ def generate_ddos_attack(net, target_ip='10.0.1.10', duration=60):
                 time.sleep(0.1)  # 10 packets mỗi giây
                 
         except Exception as e:
-            print(f"❌ Attack error from {host_name}: {e}")
+            print(f"Attack error from {host_name}: {e}")
     
     # Sử dụng tất cả IoT devices để tấn công
     attackers = [
@@ -207,16 +207,16 @@ def generate_ddos_attack(net, target_ip='10.0.1.10', duration=60):
             pass
     
     # Chờ kết thúc attack
-    print(f"⏰ DDoS attack running for {duration} seconds...")
+    print(f"DDoS attack running for {duration} seconds...")
     time.sleep(duration)
-    print("🛑 DDoS attack stopped")
+    print(" DDoS attack stopped")
 
 def main():
     """Test traffic generator"""
-    print("🚦 IoT Traffic Generator - Standalone Test")
+    print(" IoT Traffic Generator - Standalone Test")
     
     # This would typically be called from the experiment runner
-    print("✅ Traffic generator module loaded successfully")
+    print("Traffic generator module loaded successfully")
 
 if __name__ == "__main__":
     main()

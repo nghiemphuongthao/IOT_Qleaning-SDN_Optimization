@@ -1,35 +1,39 @@
 #!/usr/bin/env python3
 
-from mininet_topology import create_iot_topology
-from traffic_generator import TrafficSimulator
-from src.metrics_collector import MetricsCollector
 import time
-import json
+import subprocess
+
+def start_docker_environment():
+    # Khởi động Docker environment bằng docker-compose
+    result = subprocess.run(
+        ["docker-compose", "up", "-d"],
+        capture_output=True,
+        text=True
+    )
+    
+    if result.returncode != 0:
+        print(f"Docker-compose error: {result.stderr}")
+        return False
+    
+    print("Docker environment started")
+    time.sleep(15)  # Chờ các dịch vụ Docker khởi động
+    return True
+
 
 def run_baseline():
-    # Tạo topology
-    net = create_iot_topology()
+    # Chỉ chạy Docker — không chạy Mininet trong script nữa
+    if not start_docker_environment():
+        return
 
-    # Khởi tạo traffic simulator và metrics collector
-    traffic_sim = TrafficSimulator(net)
-    metrics_collector = MetricsCollector(net)
+    print("Baseline simulation is running inside Docker.")
+    print("Waiting for container simulation to finish...")
 
-    # Bắt đầu thu thập metrics
-    metrics_collector.start_collection()
-
-    # Bắt đầu mô phỏng lưu lượng
-    traffic_sim.start_background_traffic(duration=60)
-
-    # Chờ cho mô phỏng kết thúc
+    # Nếu bạn muốn chờ container tự chạy xong (ví dụ dùng CMD trong Dockerfile)
+    # bạn có thể sleep
     time.sleep(60)
 
-    # Dừng thu thập và mô phỏng
-    traffic_sim.stop()
-    metrics_collector.stop()
+    print("Simulation finished. Results should be in ./results inside Docker volume.")
 
-    # Lưu kết quả
-    with open('results/baseline/metrics.json', 'w') as f:
-        json.dump(metrics_collector.metrics, f)
 
 if __name__ == '__main__':
     run_baseline()

@@ -3,7 +3,7 @@ version: '3.8'
 services:
   ryu-controller:
     build:
-      context: ./docker/ryu-python38
+      context: ./docker/ryu-python37
       dockerfile: Dockerfile
     container_name: ryu-controller
     ports:
@@ -11,11 +11,11 @@ services:
       - "8080:8080"
     volumes:
       - ./src/ryu_controller:/app
-      - ./results:/app/results
+      # - ./results:/app/results
       - ./logs:/app/logs
     networks:
       sdn-net:
-        ipv4_address: 172.20.0.10
+        ipv4_address: 172.25.0.10
     command: ryu-manager /app/sdn_controller.py --ofp-tcp-listen-port 6633 --wsapi-port 8080
 
   mininet-topology:
@@ -26,12 +26,13 @@ services:
     privileged: true
     volumes:
       - ./src:/app/src
-      - ./results:/app/results
+      - ./experiments:/app/experiments
+      # - ./results:/app/results
       - ./scripts:/app/scripts
       - ./logs:/app/logs
     networks:
       sdn-net:
-        ipv4_address: 172.20.0.20
+        ipv4_address: 172.25.0.20
     depends_on:
       - ryu-controller
     command: tail -f /dev/null
@@ -43,13 +44,14 @@ services:
     container_name: qlearning-agent
     volumes:
       - ./src:/app/src
-      - ./results:/app/results
+      - ./experiments:/app/experiments 
+      # - ./results:/app/results
       - ./configs:/app/configs
       - ./models:/app/models
       - ./logs:/app/logs
     networks:
       sdn-net:
-        ipv4_address: 172.20.0.30
+        ipv4_address: 172.25.0.30
     depends_on:
       - ryu-controller
     command: python3 /app/src/qlearning_agent.py
@@ -59,4 +61,4 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/24
+        - subnet: 172.25.0.0/24

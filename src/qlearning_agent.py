@@ -203,7 +203,7 @@ class SDNQLearningOptimizer:
     
     def train_episode(self):
         """Training một episode hoàn chỉnh"""
-        print(f"🧠 Starting training episode {self.episode}")
+        print(f"Starting training episode {self.episode}")
         
         # Lấy initial state
         state = self.get_network_state()
@@ -251,7 +251,7 @@ class SDNQLearningOptimizer:
         }
         self.agent.training_history.append(training_info)
         
-        print(f"✅ Episode {self.episode} completed. Total reward: {total_reward}")
+        print(f"Episode {self.episode} completed. Total reward: {total_reward}")
         return total_reward
     
     def _get_current_metrics(self):
@@ -265,20 +265,20 @@ class SDNQLearningOptimizer:
     
     def run_training(self, total_episodes=1000):
         """Chạy training loop"""
-        print(f"🚀 Starting Q-learning training for {total_episodes} episodes")
+        print(f"Starting Q-learning training for {total_episodes} episodes")
         
         for episode in range(total_episodes):
             reward = self.train_episode()
             
             # Log progress mỗi 10 episodes
             if episode % 10 == 0:
-                print(f"📊 Episode {episode}: Reward={reward}, Epsilon={self.agent.epsilon:.3f}")
+                print(f"Episode {episode}: Reward={reward}, Epsilon={self.agent.epsilon:.3f}")
             
             # Save model mỗi 100 episodes
             if episode % 100 == 0:
                 self.save_model(f"models/qlearning_model_ep{episode}.h5")
         
-        print("🎉 Training completed!")
+        print("Training completed!")
         self.save_model("models/qlearning_model_final.h5")
     
     def save_model(self, filename):
@@ -290,19 +290,19 @@ class SDNQLearningOptimizer:
     def load_model(self, filename):
         """Load model"""
         self.agent.load(filename)
-        print(f"📂 Model loaded: {filename}")
+        print(f"Model loaded: {filename}")
     
     def save_training_history(self):
         """Lưu lịch sử training"""
         os.makedirs('results', exist_ok=True)
         with open('results/training_history.json', 'w') as f:
             json.dump(self.agent.training_history, f, indent=2)
-        print("💾 Training history saved")
+        print("Training history saved")
 
 def main():
     """Main function"""
     print("=" * 60)
-    print("🧠 Q-LEARNING AGENT FOR SDN OPTIMIZATION")
+    print("Q-LEARNING AGENT FOR SDN OPTIMIZATION")
     print("=" * 60)
     
     optimizer = SDNQLearningOptimizer()
@@ -313,7 +313,7 @@ def main():
     # Lưu kết quả
     optimizer.save_training_history()
     
-    print("🎯 Q-learning agent finished!")
+    print("Q-learning agent finished!")
 
 if __name__ == "__main__":
     main()

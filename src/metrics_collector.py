@@ -9,6 +9,8 @@ import threading
 import subprocess
 import pandas as pd
 from datetime import datetime
+import os
+import random
 
 class RealTimeMetricsCollector:
     def __init__(self, net):
@@ -249,7 +251,7 @@ class RealTimeMetricsCollector:
             
             print(f"💾 Saved {len(self.metrics_history)} metrics samples to results/metrics_summary.json")
         except Exception as e:
-            print(f"❌ Error saving metrics summary: {e}")
+            print(f"Error saving metrics summary: {e}")
 
 def main():
     """Test metrics collector"""

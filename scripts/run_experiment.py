@@ -17,7 +17,7 @@ class ExperimentRunner:
         
     def setup_environment(self):
         """Thiết lập môi trường thí nghiệm"""
-        print("🔧 Setting up experiment environment...")
+        print("Setting up experiment environment...")
         
         os.makedirs(self.results_dir, exist_ok=True)
         os.makedirs("logs", exist_ok=True)
@@ -27,16 +27,16 @@ class ExperimentRunner:
                               capture_output=True, text=True)
         
         if result.returncode != 0:
-            print(f"❌ Docker-compose error: {result.stderr}")
+            print(f" Docker-compose error: {result.stderr}")
             return False
             
-        print("✅ Docker environment started")
+        print("Docker environment started")
         time.sleep(15)  # Chờ các service khởi động
         return True
     
     def run_baseline_experiment(self, duration=300):
         """Chạy baseline experiment (không optimization)"""
-        print("\n🔬 Running BASELINE Experiment")
+        print("\nRunning BASELINE Experiment")
         
         # Khởi động Mininet topology
         self._start_mininet_topology()
@@ -52,11 +52,11 @@ class ExperimentRunner:
         # Thu thập kết quả
         self._collect_results("baseline")
         
-        print("✅ Baseline experiment completed")
+        print("Baseline experiment completed")
     
     def run_sdn_experiment(self, duration=300):
         """Chạy SDN experiment (chỉ Ryu controller)"""
-        print("\n🎮 Running SDN Experiment")
+        print("\nRunning SDN Experiment")
         
         # Ryu controller đã chạy trong Docker
         self._start_mininet_topology()
@@ -72,11 +72,11 @@ class ExperimentRunner:
         # Thu thập kết quả
         self._collect_results("ryu_sdn")
         
-        print("✅ SDN experiment completed")
+        print("SDN experiment completed")
     
     def run_qlearning_experiment(self, duration=600):
         """Chạy Q-learning experiment"""
-        print("\n🧠 Running Q-LEARNING Experiment")
+        print("\nRunning Q-LEARNING Experiment")
         
         # Ryu controller và Q-learning agent đã chạy trong Docker
         self._start_mininet_topology()
@@ -96,7 +96,7 @@ class ExperimentRunner:
     
     def _start_mininet_topology(self):
         """Khởi động Mininet topology"""
-        print("🔗 Starting Mininet topology...")
+        print("Starting Mininet topology...")
         
         try:
             subprocess.run([
@@ -104,9 +104,9 @@ class ExperimentRunner:
                 "python3", "/app/src/mininet_topology.py"
             ], check=True)
             time.sleep(10)
-            print("✅ Mininet topology started")
+            print("Mininet topology started")
         except subprocess.CalledProcessError as e:
-            print(f"❌ Error starting Mininet: {e}")
+            print(f"Error starting Mininet: {e}")
     
     def _start_traffic_generation(self, duration):
         """Khởi động traffic generation"""
@@ -117,9 +117,9 @@ class ExperimentRunner:
                 "docker", "exec", "-d", "mininet-topology",
                 "python3", "/app/src/traffic_generator.py"
             ], check=True)
-            print("✅ Traffic generation started")
+            print("Traffic generation started")
         except subprocess.CalledProcessError as e:
-            print(f"❌ Error starting traffic generation: {e}")
+            print(f" Error starting traffic generation: {e}")
     
     def _collect_results(self, experiment_type):
         """Thu thập kết quả từ containers"""
