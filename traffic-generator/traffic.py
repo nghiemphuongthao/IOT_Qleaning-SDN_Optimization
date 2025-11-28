@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-IoT Traffic Generator - Tạo traffic thực tế cho mạng IoT
-"""
-
 import time
 import random
 import threading
@@ -171,7 +166,7 @@ class IoTTrafficGenerator:
 
 def generate_ddos_attack(net, target_ip='10.0.1.10', duration=60):
     """Tạo DDoS attack scenario để test Q-learning"""
-    print(f"🔥 Generating DDoS attack to {target_ip} for {duration} seconds")
+    print(f"Generating DDoS attack to {target_ip} for {duration} seconds")
     
     def attack_worker(host_name):
         try:

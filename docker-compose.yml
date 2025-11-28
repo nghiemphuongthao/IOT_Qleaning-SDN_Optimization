@@ -1,60 +1,85 @@
-version: '3.8'
+version: '3.9'
 
 services:
   ryu-controller:
-    build:
-      context: ./docker/ryu-python37
-      dockerfile: Dockerfile
+    build: ./ryu-controller
     container_name: ryu-controller
-    ports:
-      - "6633:6633"
-      - "8080:8080"
-    volumes:
-      - ./src/ryu_controller:/app
-      # - ./results:/app/results
-      - ./logs:/app/logs
     networks:
       sdn-net:
         ipv4_address: 172.25.0.10
-    command: ryu-manager /app/sdn_controller.py --ofp-tcp-listen-port 6633 --wsapi-port 8080
+    environment:
+      # Chỉ active khi mode SDN hoặc SDN+QLEARNING
+      TOPOLOGY_MODE: ${TOPOLOGY_MODE:-baseline}
+    command: >
+      sh -c "
+        if [ \"$TOPOLOGY_MODE\" != 'baseline' ]; then
+          ryu-manager /app/app.py --ofp-tcp-listen-port 6633 --wsapi-port 8080
+        else
+          echo 'Baseline mode: Ryu not started'
+          tail -f /dev/null
+        fi
+      "
 
   mininet-topology:
-    build:
-      context: ./docker/mininet-python310
-      dockerfile: Dockerfile
+    build: ./mininet-topology
     container_name: mininet-topology
-    privileged: true
-    volumes:
-      - ./src:/app/src
-      - ./experiments:/app/experiments
-      # - ./results:/app/results
-      - ./scripts:/app/scripts
-      - ./logs:/app/logs
     networks:
       sdn-net:
         ipv4_address: 172.25.0.20
-    depends_on:
-      - ryu-controller
-    command: tail -f /dev/null
+    privileged: true
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./shared:/shared
+    environment:
+      TOPOLOGY_MODE: ${TOPOLOGY_MODE:-baseline}
+    command: >
+      sh -c "python3 /app/topology.py $TOPOLOGY_MODE"
 
   qlearning-agent:
-    build:
-      context: ./docker/qlearning-python39
-      dockerfile: Dockerfile
+    build: ./qlearning-agent
     container_name: qlearning-agent
-    volumes:
-      - ./src:/app/src
-      - ./experiments:/app/experiments 
-      # - ./results:/app/results
-      - ./configs:/app/configs
-      - ./models:/app/models
-      - ./logs:/app/logs
     networks:
       sdn-net:
         ipv4_address: 172.25.0.30
     depends_on:
+      - mininet-topology
       - ryu-controller
-    command: python3 /app/src/qlearning_agent.py
+    volumes: 
+      - ./shared:/shared
+    environment:
+      TOPOLOGY_MODE: ${TOPOLOGY_MODE:-baseline}
+    command: >
+      sh -c "
+        if [ \"$TOPOLOGY_MODE\" = 'qlearning' ]; then
+          python3 /app/q_agent.py
+        else
+          echo 'Q-learning agent inactive for mode $TOPOLOGY_MODE'
+          tail -f /dev/null
+        fi
+      "
+
+  traffic-generator:
+    build: ./traffic-generator
+    container_name: traffic-generator
+    networks:
+      sdn-net:
+        ipv4_address: 172.25.0.40
+    depends_on:
+      - mininet-topology
+    volumes: 
+      - ./shared:/shared
+    environment:
+      TOPOLOGY_MODE: ${TOPOLOGY_MODE:-baseline}
+    command: >
+      sh -c "
+        if [ \"$TOPOLOGY_MODE\" != 'baseline' ]; then
+          python3 /app/traffic.py
+        else
+          echo 'Traffic generator inactive for baseline'
+          tail -f /dev/null
+        fi
+      "
 
 networks:
   sdn-net:

@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Q-learning Agent for SDN Traffic Optimization - Hoàn chỉnh
-"""
-
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models
@@ -14,8 +9,6 @@ import os
 import requests
 
 class DQNAgent:
-    """Deep Q-Network Agent for SDN Traffic Optimization"""
-    
     def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
@@ -191,14 +184,14 @@ class SDNQLearningOptimizer:
             )
             
             if response.status_code == 200:
-                print(f"✅ Action {action} executed: {action_config['type']}")
+                print(f"Action {action} executed: {action_config['type']}")
                 return True
             else:
-                print(f"❌ Failed to execute action {action}")
+                print(f"Failed to execute action {action}")
                 return False
                 
         except Exception as e:
-            print(f"❌ Error executing action: {e}")
+            print(f"Error executing action: {e}")
             return False
     
     def train_episode(self):
@@ -285,7 +278,7 @@ class SDNQLearningOptimizer:
         """Lưu model"""
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         self.agent.save(filename)
-        print(f"💾 Model saved: {filename}")
+        print(f"Model saved: {filename}")
     
     def load_model(self, filename):
         """Load model"""
