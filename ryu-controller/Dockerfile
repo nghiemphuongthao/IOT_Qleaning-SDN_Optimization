@@ -1,21 +1,15 @@
-FROM python:3.7
+FROM osrg/ryu:4.31
+
+# Cài curl để test health check (tuỳ chọn)
+RUN apt-get update && apt-get install -y curl
 
 WORKDIR /app
 
-# Cài đặt các dependencies hệ thống
-RUN apt-get update && apt-get install -y \
-    net-tools \
-    iputils-ping \
-    && rm -rf /var/lib/apt/lists/*
+# Copy controller app
+COPY app.py /app/app.py
 
-RUN pip install eventlet==0.30.2    
+# Expose OpenFlow và REST API
+EXPOSE 6633 6653 8080
 
-# Cài đặt Ryu
-RUN pip install ryu
-
-COPY app.py .
-
-# Expose ports cho OpenFlow và REST API
-EXPOSE 6633 8080
-
-CMD ["ryu-manager", "app.py", "--verbose", "--ofp-tcp-listen-port", "6633"]
+# Start Ryu với REST API và OpenFlow 1.3
+CMD ["ryu-manager", "--ofp-tcp-listen-port", "6633", "--wsapi-port", "8080", "app.py"]

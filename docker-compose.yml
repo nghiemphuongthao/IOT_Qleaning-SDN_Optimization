@@ -1,183 +1,44 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  # CORE INFRASTRUCTURE - Dùng chung cho cả 3 cases
-  ryu-controller-baseline:
-    build: ./ryu-controller
-    container_name: ryu-controller-baseline
-    networks:
-      sdn-net:
-        ipv4_address: 172.20.0.10
+  ryu:
+    build:
+      context: .
+      dockerfile: Dockerfile-ryu
+    container_name: ryu
     ports:
-      - "8081:8080"  # Port khác để chạy đồng thời
-      - "6634:6633"
-    environment:
-      - MODE=baseline
-    command: ["ryu-manager", "app.py", "--verbose", "--ofp-tcp-listen-port", "6633"]
-
-  ryu-controller-sdn:
-    build: ./ryu-controller  
-    container_name: ryu-controller-sdn
+      - "6633:6633"
+      - "8080:8080"
     networks:
-      sdn-net:
-        ipv4_address: 172.20.0.11
-    ports:
-      - "8082:8080"
-      - "6635:6633"
-    environment:
-      - MODE=sdn
-    command: ["ryu-manager", "app.py", "--verbose", "--ofp-tcp-listen-port", "6633"]
+      - sdn-net
+    restart: unless-stopped
 
-  ryu-controller-sdn-qlearning:
-    build: ./ryu-controller
-    container_name: ryu-controller-sdn-qlearning
-    networks:
-      sdn-net:
-        ipv4_address: 172.20.0.12
-    ports:
-      - "8083:8080"
-      - "6636:6633"
-    environment:
-      - MODE=sdn_qlearning
-    command: ["ryu-manager", "app.py", "--verbose", "--ofp-tcp-listen-port", "6633"]
-
-  # MININET TOPOLOGIES - Mỗi case một topology riêng
-  mininet-baseline:
-    build: ./mininet-topology
-    container_name: mininet-baseline
-    networks:
-      sdn-net:
-        ipv4_address: 172.20.0.30
-    cap_add:
-      - NET_ADMIN
-    privileged: true
+  mininet:
+    image: ubuntu:22.04
+    container_name: mininet
+    depends_on:
+      - ryu
+    network_mode: "service:ryu"   # dùng chung network với Ryu
     tty: true
     stdin_open: true
-    volumes:
-      - /lib/modules:/lib/modules:ro
-    environment:
-      - MODE=baseline
-      - CONTROLLER_IP=172.20.0.10
-      - CONTROLLER_PORT=6633
-    command: ["python3", "topology.py"]
-
-  mininet-sdn:
-    build: ./mininet-topology
-    container_name: mininet-sdn
-    networks:
-      sdn-net:
-        ipv4_address: 172.20.0.31
     cap_add:
       - NET_ADMIN
     privileged: true
+    command: bash
+    restart: unless-stopped
+
+  traffic-gen:
+    image: ubuntu:22.04
+    container_name: traffic-gen
+    depends_on:
+      - mininet
+    network_mode: "service:mininet"
     tty: true
     stdin_open: true
-    volumes:
-      - /lib/modules:/lib/modules:ro
-    environment:
-      - MODE=sdn
-      - CONTROLLER_IP=172.20.0.11
-      - CONTROLLER_PORT=6633
-    command: ["python3", "topology.py"]
-
-  mininet-sdn-qlearning:
-    build: ./mininet-topology
-    container_name: mininet-sdn-qlearning
-    networks:
-      sdn-net:
-        ipv4_address: 172.20.0.32
-    cap_add:
-      - NET_ADMIN
     privileged: true
-    tty: true
-    stdin_open: true
-    volumes:
-      - /lib/modules:/lib/modules:ro
-    environment:
-      - MODE=sdn_qlearning
-      - CONTROLLER_IP=172.20.0.12
-      - CONTROLLER_PORT=6633
-    command: ["python3", "topology.py"]
-
-  # Q-LEARNING AGENT - Chỉ cho case SDN+Qlearning
-  qlearning-agent:
-    build: ./qlearning-agent
-    container_name: qlearning-agent
-    networks:
-      sdn-net:
-        ipv4_address: 172.20.0.20
-    volumes:
-      - ./shared:/shared
-      - ./configs:/app/configs
-    environment:
-      - RYU_CONTROLLER_URL=http://ryu-controller-sdn-qlearning:8080
-      - MODE=sdn_qlearning
-
-  # TRAFFIC GENERATOR - Chạy trên cả 3 cases
-  traffic-generator-baseline:
-    build: ./traffic-generator
-    container_name: traffic-generator-baseline
-    networks:
-      sdn-net:
-        ipv4_address: 172.20.0.40
-    cap_add:
-      - NET_ADMIN
-    privileged: true
-    volumes:
-      - ./shared:/shared
-    environment:
-      - TARGET_NETWORK=172.20.0.30
-      - MODE=baseline
-
-  traffic-generator-sdn:
-    build: ./traffic-generator
-    container_name: traffic-generator-sdn
-    networks:
-      sdn-net:
-        ipv4_address: 172.20.0.41
-    cap_add:
-      - NET_ADMIN
-    privileged: true
-    volumes:
-      - ./shared:/shared
-    environment:
-      - TARGET_NETWORK=172.20.0.31
-      - MODE=sdn
-
-  traffic-generator-sdn-qlearning:
-    build: ./traffic-generator
-    container_name: traffic-generator-sdn-qlearning
-    networks:
-      sdn-net:
-        ipv4_address: 172.20.0.42
-    cap_add:
-      - NET_ADMIN
-    privileged: true
-    volumes:
-      - ./shared:/shared
-    environment:
-      - TARGET_NETWORK=172.20.0.32
-      - MODE=sdn_qlearning
-
-  # ANALYSIS - Thu thập và so sánh kết quả
-  analysis:
-    build: ./analysis
-    container_name: analysis
-    networks:
-      sdn-net:
-        ipv4_address: 172.20.0.50
-    volumes:
-      - ./shared:/shared
-      - ./configs:/app/configs
-    environment:
-      - RYU_BASELINE_URL=http://ryu-controller-baseline:8080
-      - RYU_SDN_URL=http://ryu-controller-sdn:8080
-      - RYU_SDN_QLEARNING_URL=http://ryu-controller-sdn-qlearning:8080
+    command: bash
+    restart: unless-stopped
 
 networks:
   sdn-net:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/24
-        - gateway: 172.20.0.1

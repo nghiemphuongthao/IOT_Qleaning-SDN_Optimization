@@ -1,99 +1,195 @@
+#!/usr/bin/env python3
+
 import time
 import random
-import logging
+import threading
 import subprocess
-from scapy.all import IP, ICMP, TCP, UDP, Ether, sendp, conf
-from scapy.all import *
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+import json
+from datetime import datetime
 
 class TrafficGenerator:
-    def __init__(self):
+    def __init__(self, target_network):
+        self.target_network = target_network
+        self.results = []
+        # Define hosts in different subnets for realistic traffic patterns
         self.hosts = [
-            '10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4',
-            '10.0.0.5', '10.0.0.6', '10.0.0.7', '10.0.0.8'
+            '10.0.1.1', '10.0.1.2', '10.0.1.3',
+            '10.0.2.1', '10.0.2.2',
+            '10.0.3.1', '10.0.3.2', 
+            '10.0.4.1', '10.0.4.2', '10.0.4.3',
+            '10.0.100.2'
         ]
-        self.find_available_interface()
+        
+    def generate_mixed_traffic(self):
+        """Generate mixed traffic patterns"""
+        print("Starting mixed traffic generation...")
+        
+        # Cross-subnet traffic
+        cross_subnet_thread = threading.Thread(target=self._cross_subnet_traffic)
+        cross_subnet_thread.daemon = True
+        cross_subnet_thread.start()
+        
+        # Intra-subnet traffic
+        intra_subnet_thread = threading.Thread(target=self._intra_subnet_traffic)
+        intra_subnet_thread.daemon = True
+        intra_subnet_thread.start()
+        
+        # Cloud traffic
+        cloud_traffic_thread = threading.Thread(target=self._cloud_traffic)
+        cloud_traffic_thread.daemon = True
+        cloud_traffic_thread.start()
     
-    def find_available_interface(self):
-        """Tìm interface có sẵn để gửi traffic"""
-        try:
-            # Thử các interface phổ biến
-            test_interfaces = ['eth0', 'eth1', 'ens33', 'ens32', 'eno1', 'wlan0']
-            for iface in test_interfaces:
-                try:
-                    # Kiểm tra interface có tồn tại không
-                    result = subprocess.run(['ip', 'link', 'show', iface], 
-                                          capture_output=True, text=True)
-                    if result.returncode == 0:
-                        self.interface = iface
-                        logging.info(f"Using interface: {iface}")
-                        return
-                except:
-                    continue
-            
-            # Nếu không tìm thấy, sử dụng interface mặc định
-            self.interface = conf.iface
-            logging.info(f"Using default interface: {self.interface}")
-        except:
-            self.interface = None
-            logging.warning("No interface found, traffic generation may fail")
-    
-    def generate_icmp_traffic(self, count=10):
-        logging.info(f"Generating {count} ICMP packets")
-        success_count = 0
-        for i in range(count):
+    def _cross_subnet_traffic(self):
+        """Generate traffic between different subnets"""
+        while True:
             try:
                 src = random.choice(self.hosts)
                 dst = random.choice([h for h in self.hosts if h != src])
+                bandwidth = random.choice(['10M', '5M', '20M'])
+                duration = random.randint(10, 30)
                 
-                packet = Ether()/IP(src=src, dst=dst)/ICMP()
-                if self.interface:
-                    sendp(packet, iface=self.interface, verbose=False)
-                else:
-                    sendp(packet, verbose=False)
-                success_count += 1
-                time.sleep(0.1)
+                cmd = [
+                    'iperf', '-c', dst, '-b', bandwidth,
+                    '-t', str(duration), '-i', '1', '-p', '5001'
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                self._log_traffic(f'cross_subnet_{src}_{dst}', result.stdout)
+                time.sleep(random.randint(5, 15))
             except Exception as e:
-                logging.error(f"Failed to send ICMP packet: {e}")
-        
-        logging.info(f"Successfully sent {success_count}/{count} ICMP packets")
+                print(f"Cross-subnet traffic error: {e}")
+                time.sleep(10)
     
-    def generate_tcp_traffic(self, count=5):
-        logging.info(f"Generating {count} TCP packets")
-        success_count = 0
-        for i in range(count):
+    def _intra_subnet_traffic(self):
+        """Generate traffic within the same subnet"""
+        subnets = {
+            'subnet1': ['10.0.1.1', '10.0.1.2', '10.0.1.3'],
+            'subnet2': ['10.0.2.1', '10.0.2.2'],
+            'subnet3': ['10.0.3.1', '10.0.3.2'],
+            'subnet4': ['10.0.4.1', '10.0.4.2', '10.0.4.3'],
+        }
+        
+        while True:
             try:
-                src = random.choice(self.hosts)
-                dst = random.choice([h for h in self.hosts if h != src])
-                sport = random.randint(1024, 65535)
-                dport = random.randint(1, 1000)
-                
-                packet = Ether()/IP(src=src, dst=dst)/TCP(sport=sport, dport=dport)
-                if self.interface:
-                    sendp(packet, iface=self.interface, verbose=False)
-                else:
-                    sendp(packet, verbose=False)
-                success_count += 1
-                time.sleep(0.2)
+                subnet = random.choice(list(subnets.keys()))
+                hosts = subnets[subnet]
+                if len(hosts) >= 2:
+                    src, dst = random.sample(hosts, 2)
+                    bandwidth = random.choice(['1M', '5M', '10M'])
+                    duration = random.randint(5, 20)
+                    
+                    cmd = [
+                        'iperf', '-c', dst, '-b', bandwidth,
+                        '-t', str(duration), '-i', '1', '-p', '5002'
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    self._log_traffic(f'intra_{subnet}_{src}_{dst}', result.stdout)
+                time.sleep(random.randint(3, 10))
             except Exception as e:
-                logging.error(f"Failed to send TCP packet: {e}")
-        
-        logging.info(f"Successfully sent {success_count}/{count} TCP packets")
+                print(f"Intra-subnet traffic error: {e}")
+                time.sleep(10)
     
-    def run(self):
-        logging.info("Starting traffic generator")
-        try:
-            while True:
-                self.generate_icmp_traffic(5)  # Giảm số lượng packet để test
+    def _cloud_traffic(self):
+        """Generate traffic to cloud server"""
+        cloud_server = '10.0.100.2'
+        sources = ['10.0.1.1', '10.0.2.1', '10.0.3.1', '10.0.4.1']
+        
+        while True:
+            try:
+                src = random.choice(sources)
+                bandwidth = random.choice(['50M', '100M', '30M'])
+                duration = random.randint(15, 45)
+                
+                cmd = [
+                    'iperf', '-c', cloud_server, '-b', bandwidth,
+                    '-t', str(duration), '-i', '1', '-p', '5003'
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                self._log_traffic(f'cloud_{src}', result.stdout)
+                time.sleep(random.randint(10, 20))
+            except Exception as e:
+                print(f"Cloud traffic error: {e}")
+                time.sleep(10)
+    
+    def generate_latency_test(self):
+        """Test latency between different network segments"""
+        print("Starting latency tests...")
+        
+        test_pairs = [
+            ('10.0.1.1', '10.0.100.2'),
+            ('10.0.4.3', '10.0.1.2'),
+            ('10.0.2.1', '10.0.3.1'),
+        ]
+        
+        for src, dst in test_pairs:
+            try:
+                cmd = ['ping', '-c', '10', '-s', '64', '-i', '0.1', dst]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                self._log_traffic(f'latency_{src}_{dst}', result.stdout)
                 time.sleep(2)
-                self.generate_tcp_traffic(3)   # Giảm số lượng packet để test
-                time.sleep(3)
-        except KeyboardInterrupt:
-            logging.info("Traffic generator stopped")
+            except Exception as e:
+                print(f"Latency test error for {src} to {dst}: {e}")
+    
+    def _log_traffic(self, traffic_type, output):
+        """Log traffic results"""
+        timestamp = datetime.now().isoformat()
+        log_entry = {
+            'timestamp': timestamp,
+            'type': traffic_type,
+            'output': output
+        }
+        self.results.append(log_entry)
+        
+        # Save to file periodically
+        if len(self.results) % 5 == 0:
+            self._save_results()
+    
+    def _save_results(self):
+        """Save results to JSON file"""
+        try:
+            with open('/shared/traffic_results.json', 'w') as f:
+                json.dump(self.results, f, indent=2)
         except Exception as e:
-            logging.error(f"Traffic generator error: {e}")
+            print(f"Error saving results: {e}")
+    
+    def run_complete_scenario(self, duration=300):
+        """Run complete traffic scenario"""
+        print(f"Starting complete traffic scenario for {duration} seconds")
+        
+        # Start background traffic
+        self.generate_mixed_traffic()
+        
+        # Run specific scenarios at intervals
+        start_time = time.time()
+        scenario_count = 0
+        
+        while time.time() - start_time < duration:
+            current_time = time.time() - start_time
+            
+            if scenario_count == 0 and current_time > 60:
+                print("=== Starting Latency Test ===")
+                self.generate_latency_test()
+                scenario_count += 1
+            
+            elif scenario_count == 1 and current_time > 180:
+                print("=== Starting Intensive Traffic ===")
+                # Already running mixed traffic
+                scenario_count += 1
+            
+            time.sleep(10)
+        
+        # Final save
+        self._save_results()
+        print("Traffic generation completed")
 
-if __name__ == "__main__":
-    generator = TrafficGenerator()
-    generator.run()
+if __name__ == '__main__':
+    import sys
+    
+    if len(sys.argv) != 2:
+        print("Usage: python3 traffic.py <target_network>")
+        sys.exit(1)
+    
+    target_network = sys.argv[1]
+    generator = TrafficGenerator(target_network)
+    
+    # Run for 5 minutes
+    generator.run_complete_scenario(300)

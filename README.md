@@ -47,3 +47,16 @@ Start Ryu controller
 Launch Q-learning agent
 
 Generate traffic patterns
+
+▶ CASE 1 — Baseline (no SDN)
+docker exec -it mininet bash -c "mn -c; python3 topology_baseline.py"
+docker exec -d traffic-gen python3 traffic.py --mode baseline
+
+▶ CASE 2 — SDN (Ryu)
+docker exec -it mininet bash -c "mn -c; python3 topology_sdn.py"
+docker exec -d traffic-gen python3 traffic.py --mode sdn
+
+▶ CASE 3 — SDN + Q-learning
+docker exec -d qagent python3 q_agent.py
+docker exec -it mininet bash -c "mn -c; python3 topology_sdn.py"
+docker exec -d traffic-gen python3 traffic.py --mode sdn_qlearning

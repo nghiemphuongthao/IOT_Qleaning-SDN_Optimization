@@ -7,17 +7,17 @@ class ExperimentConfig:
     
     def setup_mode_config(self):
         if self.mode == 'baseline':
-            self.controller_ip = os.getenv('CONTROLLER_IP', '172.20.0.10')
+            self.controller_ip = os.getenv('CONTROLLER_IP', '127.0.0.1')
             self.controller_port = int(os.getenv('CONTROLLER_PORT', 6633))
             self.ryu_app = 'app.py'  # Basic forwarding
             
         elif self.mode == 'sdn':
-            self.controller_ip = os.getenv('CONTROLLER_IP', '172.20.0.11') 
+            self.controller_ip = os.getenv('CONTROLLER_IP', '127.0.0.1') 
             self.controller_port = int(os.getenv('CONTROLLER_PORT', 6633))
             self.ryu_app = 'app.py'  # SDN features
             
         elif self.mode == 'sdn_qlearning':
-            self.controller_ip = os.getenv('CONTROLLER_IP', '172.20.0.12')
+            self.controller_ip = os.getenv('CONTROLLER_IP', '127.0.0.1')
             self.controller_port = int(os.getenv('CONTROLLER_PORT', 6633))
             self.ryu_app = 'app.py'  # With Q-learning hooks
             self.qlearning_enabled = True

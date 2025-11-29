@@ -1,78 +1,70 @@
-#!/usr/bin/env python3
-
 import json
-import requests
-import statistics
-from datetime import datetime
+import numpy as np
+import matplotlib.pyplot as plt
+import os
 
-class PerformanceComparator:
-    def __init__(self):
-        self.baseline_url = os.getenv('RYU_BASELINE_URL', 'http://172.20.0.10:8080')
-        self.sdn_url = os.getenv('RYU_SDN_URL', 'http://172.20.0.11:8080')
-        self.sdn_qlearning_url = os.getenv('RYU_SDN_QLEARNING_URL', 'http://172.20.0.12:8080')
-        
-    def collect_metrics(self):
-        metrics = {}
-        
-        for case, url in [('baseline', self.baseline_url),
-                         ('sdn', self.sdn_url), 
-                         ('sdn_qlearning', self.sdn_qlearning_url)]:
-            
-            try:
-                # Get switch statistics
-                switches = requests.get(f"{url}/stats/switches").json()
-                flow_stats = requests.get(f"{url}/stats/flow/1").json()
-                port_stats = requests.get(f"{url}/stats/port/1").json()
-                
-                metrics[case] = {
-                    'switches_count': len(switches.get('switches', [])),
-                    'flow_entries': self.count_flow_entries(flow_stats),
-                    'throughput': self.calculate_throughput(port_stats),
-                    'timestamp': datetime.now().isoformat()
-                }
-            except Exception as e:
-                print(f"Error collecting metrics for {case}: {e}")
-                metrics[case] = {}
-                
-        return metrics
-    
-    def generate_report(self, metrics):
-        report = {
-            'comparison_timestamp': datetime.now().isoformat(),
-            'cases': metrics,
-            'improvements': self.calculate_improvements(metrics)
-        }
-        
-        # Save report
-        with open('/shared/comparison_report.json', 'w') as f:
-            json.dump(report, f, indent=2)
-            
-        return report
-    
-    def calculate_improvements(self, metrics):
-        improvements = {}
-        
-        baseline_flows = metrics.get('baseline', {}).get('flow_entries', 0)
-        sdn_flows = metrics.get('sdn', {}).get('flow_entries', 0)
-        sdn_qlearning_flows = metrics.get('sdn_qlearning', {}).get('flow_entries', 0)
-        
-        if baseline_flows > 0:
-            improvements['sdn_vs_baseline'] = {
-                'flow_reduction_percent': ((baseline_flows - sdn_flows) / baseline_flows) * 100,
-                'efficiency_gain': sdn_flows / baseline_flows
-            }
-            
-        if sdn_flows > 0:
-            improvements['qlearning_vs_sdn'] = {
-                'optimization_improvement': ((sdn_qlearning_flows - sdn_flows) / sdn_flows) * 100
-            }
-            
-        return improvements
+def load_traffic_log(path):
+    delays = []
+    losses = []
+    throughput = []
 
-if __name__ == '__main__':
-    comparator = PerformanceComparator()
-    metrics = comparator.collect_metrics()
-    report = comparator.generate_report(metrics)
-    
-    print("=== SDN Performance Comparison Report ===")
-    print(json.dumps(report, indent=2))
+    with open(path, "r") as f:
+        for line in f:
+            if "rtt" in line:  # ping
+                try:
+                    delay = float(line.split("time=")[1].split(" ms")[0])
+                    delays.append(delay)
+                except:
+                    pass
+
+            if "packet loss" in line:
+                try:
+                    loss = float(line.split("%")[0].split()[-1])
+                    losses.append(loss)
+                except:
+                    pass
+
+            if "iperf" in line and "bits/sec" in line:
+                try:
+                    value = float(line.split()[-3])  # Mbps
+                    throughput.append(value)
+                except:
+                    pass
+
+    return delays, losses, throughput
+
+def summarize_case(case_name, path):
+    delay, loss, thr = load_traffic_log(path)
+
+    summary = {
+        "case": case_name,
+        "avg_delay": np.mean(delay) if delay else 0,
+        "max_delay": np.max(delay) if delay else 0,
+        "avg_loss": np.mean(loss) if loss else 0,
+        "avg_throughput": np.mean(thr) if thr else 0,
+    }
+
+    return summary
+
+def save_summary(result, output_path):
+    with open(output_path, "w") as f:
+        json.dump(result, f, indent=4)
+    print("[OK] Saved:", output_path)
+
+if __name__ == "__main__":
+
+    results = {}
+    base = "results"
+
+    results["baseline"] = summarize_case(
+        "baseline", f"{base}/baseline/baseline_traffic.log"
+    )
+    results["sdn"] = summarize_case(
+        "sdn", f"{base}/sdn/sdn_traffic.log"
+    )
+    results["sdn_qlearn"] = summarize_case(
+        "sdn_qlearn", f"{base}/sdn_qlearning/sdn-qlearning_traffic.log"
+    )
+
+    save_summary(results, "results/comparison_report.json")
+    print(json.dumps(results, indent=4))

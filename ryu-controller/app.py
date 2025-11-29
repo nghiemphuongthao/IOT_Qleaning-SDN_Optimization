@@ -2,199 +2,134 @@ from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls
 from ryu.ofproto import ofproto_v1_3
+from ryu.topology import event, switches
+from ryu.topology.api import get_switch, get_link
 from ryu.lib.packet import packet, ethernet
-from webob import Response
-from ryu.app.wsgi import WSGIApplication, ControllerBase, route
-import json
+import networkx as nx
+import os
+import time
 
-class SimpleSwitch13(app_manager.RyuApp):
+
+class SDNRouter(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
+    _CONTEXTS = {'switches': switches.Switches}
+    MODE = os.environ.get("MODE", "baseline")
 
-    _CONTEXTS = {'wsgi': WSGIApplication}
+    if MODE == "baseline":
+        print("[RYU] Disabled in baseline mode")
+        while True:
+            time.sleep(1000)
 
     def __init__(self, *args, **kwargs):
-        super(SimpleSwitch13, self).__init__(*args, **kwargs)
+        super(SDNRouter, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
-        self.switches = {}
-        
-        # Setup WSGI for REST API
-        wsgi = kwargs['wsgi']
-        self.wsgi = wsgi
-        wsgi.register(StatsController, {'app': self})
+        self.net = nx.DiGraph()
+        self.topo_ready = False
+
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
+        """Install table miss entry"""
         datapath = ev.msg.datapath
-        ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
+        ofproto = datapath.ofproto
 
-        self.logger.info(f"Switch connected: dpid={datapath.id}")
-        self.switches[datapath.id] = datapath
-
-        # Install default flow entry
         match = parser.OFPMatch()
-        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
-                                          ofproto.OFPCML_NO_BUFFER)]
-        self.add_flow(datapath, 0, match, actions)
+        action = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
+                                         ofproto.OFPCML_NO_BUFFER)]
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, action)]
 
-    def add_flow(self, datapath, priority, match, actions, buffer_id=None):
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
+        datapath.send_msg(parser.OFPFlowMod(
+            datapath=datapath, priority=0,
+            match=match, instructions=inst
+        ))
 
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
-                                             actions)]
-        if buffer_id:
-            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
-                                    priority=priority, match=match,
-                                    instructions=inst)
-        else:
-            mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                    match=match, instructions=inst)
-        datapath.send_msg(mod)
+
+    @set_ev_cls(event.EventSwitchEnter)
+    def topo_discover(self, ev):
+        """Discover topology when switch join"""
+        switches = get_switch(self, None)
+        links = get_link(self, None)
+
+        self.net.clear()
+
+        for s in switches:
+            self.net.add_node(s.dp.id)
+
+        for l in links:
+            src = l.src
+            dst = l.dst
+            self.net.add_edge(src.dpid, dst.dpid, port=src.port_no)
+            self.net.add_edge(dst.dpid, src.dpid, port=dst.port_no)
+
+        self.logger.info("Topology updated:")
+        self.logger.info(f"Nodes: {self.net.nodes()}")
+        self.logger.info(f"Links: {self.net.edges()}")
+
+        self.topo_ready = True
+
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
-    def _packet_in_handler(self, ev):
-        if ev.msg.msg_len < ev.msg.total_len:
-            self.logger.debug("packet truncated: only %s of %s bytes", 
-                              ev.msg.msg_len, ev.msg.total_len)
-            
+    def packet_in_handler(self, ev):
+        """Handle packet and compute path if needed"""
         msg = ev.msg
-        datapath = msg.datapath
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        
+        dp = msg.datapath
+        parser = dp.ofproto_parser
+        ofproto = dp.ofproto
+        dpid = dp.id
         in_port = msg.match['in_port']
 
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocol(ethernet.ethernet)
-
-        if eth is None:
+        if eth.ethertype == 0x88cc:  # Ignore LLDP
             return
 
-        dst = eth.dst
         src = eth.src
+        dst = eth.dst
 
-        dpid = datapath.id
         self.mac_to_port.setdefault(dpid, {})
-
-        self.logger.info("Packet in - DPID: %s, SRC: %s, DST: %s, IN_PORT: %s", 
-                         dpid, src, dst, in_port)
-
-        # Learn MAC address
         self.mac_to_port[dpid][src] = in_port
 
+        # If we know destination location → compute path
         if dst in self.mac_to_port[dpid]:
             out_port = self.mac_to_port[dpid][dst]
         else:
-            out_port = ofproto.OFPP_FLOOD
+            # Destination in another switch?
+            location = None
+            for sw in self.mac_to_port:
+                if dst in self.mac_to_port[sw]:
+                    location = sw
+                    break
 
+            if location is None:
+                out_port = ofproto.OFPP_FLOOD
+            else:
+                if not self.topo_ready:
+                    out_port = ofproto.OFPP_FLOOD
+                else:
+                    # Compute shortest path between dp and destination-switch
+                    path = nx.shortest_path(self.net, dpid, location)
+                    next_hop = path[1]
+                    out_port = self.net[dpid][next_hop]['port']
+                    self.logger.info(f"Path {src} → {dst} = {path}")
+
+        # Install flow for fast path
         actions = [parser.OFPActionOutput(out_port)]
+        match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
 
-        # Install flow entry if not flooding
-        if out_port != ofproto.OFPP_FLOOD:
-            match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
-            if msg.buffer_id != ofproto.OFP_NO_BUFFER:
-                self.add_flow(datapath, 1, match, actions, msg.buffer_id)
-                return
-            else:
-                self.add_flow(datapath, 1, match, actions)
+        dp.send_msg(parser.OFPFlowMod(
+            datapath=dp, priority=1,
+            match=match,
+            instructions=[parser.OFPInstructionActions(
+                ofproto.OFPIT_APPLY_ACTIONS, actions
+            )]
+        ))
 
-        # Send packet out
-        data = None
-        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
-            data = msg.data
-
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                  in_port=in_port, actions=actions, data=data)
-        datapath.send_msg(out)
-
-    def get_flow_stats(self):
-        """Get MAC learning table"""
-        return self.mac_to_port
-
-    def get_switches(self):
-        """Get connected switches"""
-        return list(self.switches.keys())
-
-class StatsController(ControllerBase):
-    def __init__(self, req, link, data, **config):
-        super(StatsController, self).__init__(req, link, data, **config)
-        self.app = data['app']
-
-    @route('stats', '/stats/flow/{dpid}', methods=['GET'])
-    def get_flow_stats(self, req, dpid, **kwargs):
-        """Get flow statistics for specific switch"""
-        try:
-            stats = self.app.get_flow_stats()
-            dpid_int = int(dpid)
-            
-            if dpid_int in stats:
-                body = json.dumps({
-                    'dpid': dpid_int,
-                    'mac_to_port': stats[dpid_int]
-                })
-                return Response(
-                    content_type='application/json; charset=utf-8',
-                    body=body
-                )
-            else:
-                return Response(
-                    status=404,
-                    content_type='application/json; charset=utf-8',
-                    body=json.dumps({'error': f'Switch {dpid} not found'})
-                )
-        except ValueError:
-            return Response(
-                status=400,
-                content_type='application/json; charset=utf-8', 
-                body=json.dumps({'error': 'Invalid DPID format'})
-            )
-        except Exception as e:
-            return Response(
-                status=500,
-                content_type='application/json; charset=utf-8',
-                body=json.dumps({'error': str(e)})
-            )
-
-    @route('portstats', '/stats/port/{dpid}', methods=['GET'])
-    def get_port_stats(self, req, dpid, **kwargs):
-        """Get port statistics for specific switch"""
-        try:
-            # In a real implementation, you would query the switch here
-            # This is dummy data for demonstration
-            dummy_data = {
-                'dpid': int(dpid),
-                'ports': {
-                    1: {'packets_rx': 100, 'bytes_rx': 10240, 'packets_tx': 95, 'bytes_tx': 9728},
-                    2: {'packets_rx': 150, 'bytes_rx': 15360, 'packets_tx': 145, 'bytes_tx': 14848},
-                    3: {'packets_rx': 80, 'bytes_rx': 8192, 'packets_tx': 78, 'bytes_tx': 7987}
-                }
-            }
-            body = json.dumps(dummy_data)
-            return Response(
-                content_type='application/json; charset=utf-8',
-                body=body
-            )
-        except Exception as e:
-            return Response(
-                status=500,
-                content_type='application/json; charset=utf-8',
-                body=json.dumps({'error': str(e)})
-            )
-
-    @route('switches', '/stats/switches', methods=['GET'])
-    def get_switches(self, req, **kwargs):
-        """Get list of connected switches"""
-        try:
-            switches = self.app.get_switches()
-            body = json.dumps({'switches': switches})
-            return Response(
-                content_type='application/json; charset=utf-8',
-                body=body
-            )
-        except Exception as e:
-            return Response(
-                status=500,
-                content_type='application/json; charset=utf-8',
-                body=json.dumps({'error': str(e)})
-            )
+        # Forward packet
+        dp.send_msg(parser.OFPPacketOut(
+            datapath=dp,
+            buffer_id=msg.buffer_id,
+            in_port=in_port,
+            actions=actions,
+            data=msg.data
+        ))
