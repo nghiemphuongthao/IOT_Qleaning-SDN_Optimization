@@ -1,89 +1,59 @@
-version: '3.9'
-
 services:
   ryu-controller:
     build: ./ryu-controller
     container_name: ryu-controller
     networks:
       sdn-net:
-        ipv4_address: 172.25.0.10
-    environment:
-      # Chỉ active khi mode SDN hoặc SDN+QLEARNING
-      TOPOLOGY_MODE: ${TOPOLOGY_MODE:-baseline}
-    command: >
-      sh -c "
-        if [ \"$TOPOLOGY_MODE\" != 'baseline' ]; then
-          ryu-manager /app/app.py --ofp-tcp-listen-port 6633 --wsapi-port 8080
-        else
-          echo 'Baseline mode: Ryu not started'
-          tail -f /dev/null
-        fi
-      "
+        ipv4_address: 172.20.0.10
+    ports:
+      - "8080:8080"
+      - "6633:6633"
 
   mininet-topology:
     build: ./mininet-topology
     container_name: mininet-topology
+    depends_on:
+      - ryu-controller
     networks:
       sdn-net:
-        ipv4_address: 172.25.0.20
+        ipv4_address: 172.20.0.30
+    cap_add:
+      - NET_ADMIN
     privileged: true
-    stdin_open: true
     tty: true
+    stdin_open: true
     volumes:
-      - ./shared:/shared
-    environment:
-      TOPOLOGY_MODE: ${TOPOLOGY_MODE:-baseline}
-    command: >
-      sh -c "python3 /app/topology.py $TOPOLOGY_MODE"
+      - /lib/modules:/lib/modules:ro
 
   qlearning-agent:
     build: ./qlearning-agent
     container_name: qlearning-agent
+    depends_on:
+      - ryu-controller
     networks:
       sdn-net:
-        ipv4_address: 172.25.0.30
-    depends_on:
-      - mininet-topology
-      - ryu-controller
-    volumes: 
+        ipv4_address: 172.20.0.20
+    volumes:
       - ./shared:/shared
-    environment:
-      TOPOLOGY_MODE: ${TOPOLOGY_MODE:-baseline}
-    command: >
-      sh -c "
-        if [ \"$TOPOLOGY_MODE\" = 'qlearning' ]; then
-          python3 /app/q_agent.py
-        else
-          echo 'Q-learning agent inactive for mode $TOPOLOGY_MODE'
-          tail -f /dev/null
-        fi
-      "
+      - ./configs:/app/configs
 
   traffic-generator:
     build: ./traffic-generator
     container_name: traffic-generator
-    networks:
-      sdn-net:
-        ipv4_address: 172.25.0.40
     depends_on:
       - mininet-topology
-    volumes: 
+    networks:
+      sdn-net:
+        ipv4_address: 172.20.0.40
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    volumes:
       - ./shared:/shared
-    environment:
-      TOPOLOGY_MODE: ${TOPOLOGY_MODE:-baseline}
-    command: >
-      sh -c "
-        if [ \"$TOPOLOGY_MODE\" != 'baseline' ]; then
-          python3 /app/traffic.py
-        else
-          echo 'Traffic generator inactive for baseline'
-          tail -f /dev/null
-        fi
-      "
 
 networks:
   sdn-net:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.25.0.0/24
+        - subnet: 172.20.0.0/24

@@ -1,16 +1,10 @@
-FROM python:3.9-slim
+FROM python:3.8
 
-# Cài đặt các gói cần thiết
-RUN apt-get update && apt-get install -y iputils-ping curl && \
-    pip install numpy pandas requests
+WORKDIR /app
 
-# Sao chép mã sinh lưu lượng
-WORKDIR /traffic
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
 COPY traffic.py .
 
-# Thư mục shared để lưu log nếu cần
-RUN mkdir -p /shared/results /shared/logs
-VOLUME ["/shared"]
-
-# Lệnh chạy chính
-CMD ["python", "traffic.py"]
+CMD ["python3", "traffic.py"]

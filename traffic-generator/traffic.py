@@ -1,217 +1,99 @@
 import time
 import random
-import threading
-import json
-from datetime import datetime
-import os
+import logging
+import subprocess
+from scapy.all import IP, ICMP, TCP, UDP, Ether, sendp, conf
+from scapy.all import *
 
-class IoTTrafficGenerator:
-    def __init__(self, net):
-        self.net = net
-        self.running = False
-        self.threads = []
-        
-        # Các pattern traffic cho IoT
-        self.traffic_patterns = {
-            'smart_home': {
-                'interval': (5, 30),  # 5-30 seconds between packets
-                'size': (64, 512),    # 64-512 bytes
-                'protocol': 'UDP',
-                'destinations': ['10.0.1.10', '10.0.1.1']  # server or gateway
-            },
-            'industrial': {
-                'interval': (1, 10),   # 1-10 seconds
-                'size': (128, 1024),   # 128-1024 bytes
-                'protocol': 'TCP',
-                'destinations': ['10.0.1.10']
-            },
-            'healthcare': {
-                'interval': (2, 15),   # 2-15 seconds  
-                'size': (256, 2048),   # 256-2048 bytes
-                'protocol': 'UDP',
-                'destinations': ['10.0.1.10', '10.0.1.1']
-            },
-            'environmental': {
-                'interval': (10, 60),  # 10-60 seconds
-                'size': (512, 4096),   # 512-4096 bytes
-                'protocol': 'TCP',
-                'destinations': ['10.0.1.10']
-            }
-        }
-        
-        # Map devices to traffic patterns
-        self.device_patterns = {
-            'motion_sensor': 'smart_home',
-            'temp_sensor': 'smart_home',
-            'smart_light': 'smart_home',
-            'pressure_sensor': 'industrial',
-            'vibration_sensor': 'industrial',
-            'heart_monitor': 'healthcare',
-            'blood_pressure': 'healthcare',
-            'air_quality': 'environmental',
-            'water_sensor': 'environmental',
-            'soil_sensor': 'environmental'
-        }
-    
-    def start_traffic(self, duration=300):
-        """Bắt đầu generate traffic"""
-        self.running = True
-        start_time = time.time()
-        
-        print(f" Starting IoT traffic simulation for {duration} seconds")
-        print(f" Devices: {list(self.device_patterns.keys())}")
-        
-        # Tạo thread cho mỗi device
-        for device_name, pattern_name in self.device_patterns.items():
-            try:
-                host = self.net.get(device_name)
-                if host:
-                    thread = threading.Thread(
-                        target=self._device_traffic_worker,
-                        args=(host, pattern_name, start_time, duration)
-                    )
-                    thread.daemon = True
-                    thread.start()
-                    self.threads.append(thread)
-                    print(f"  → {device_name}: {pattern_name} traffic")
-                else:
-                    print(f"  Device {device_name} not found in network")
-            except Exception as e:
-                print(f"  Error starting traffic for {device_name}: {e}")
-        
-        # Chờ kết thúc
-        try:
-            while time.time() - start_time < duration and self.running:
-                time.sleep(1)
-                
-                # Hiển thị progress mỗi 30s
-                elapsed = time.time() - start_time
-                if int(elapsed) % 30 == 0:
-                    print(f" Traffic running: {int(elapsed)}/{duration}s")
-                    
-        except KeyboardInterrupt:
-            print("\nTraffic generation interrupted")
-        finally:
-            self.stop_traffic()
-    
-    def _device_traffic_worker(self, host, pattern_name, start_time, duration):
-        """Worker thread cho mỗi device"""
-        pattern_config = self.traffic_patterns[pattern_name]
-        
-        while time.time() - start_time < duration and self.running:
-            try:
-                # Random interval và packet size
-                interval = random.uniform(*pattern_config['interval'])
-                size = random.randint(*pattern_config['size'])
-                
-                # Chọn destination ngẫu nhiên
-                dest_ip = random.choice(pattern_config['destinations'])
-                
-                # Tạo traffic dựa trên protocol
-                if pattern_config['protocol'] == 'UDP':
-                    self._send_udp_traffic(host, dest_ip, size)
-                else:
-                    self._send_tcp_traffic(host, dest_ip, size)
-                
-                # Log traffic
-                self._log_traffic(host.name, dest_ip, size, pattern_name)
-                
-                time.sleep(interval)
-                
-            except Exception as e:
-                print(f" Traffic error for {host.name}: {e}")
-                break
-    
-    def _send_udp_traffic(self, host, dest_ip, size):
-        """Gửi UDP traffic"""
-        try:
-            # Sử dụng ping để mô phỏng UDP traffic (đơn giản)
-            # Trong thực tế có thể dùng iperf hoặc custom UDP client
-            host.cmd(f'ping -c 1 -s {size} {dest_ip} > /dev/null 2>&1 &')
-        except Exception as e:
-            print(f" UDP traffic error from {host.name}: {e}")
-    
-    def _send_tcp_traffic(self, host, dest_ip, size):
-        """Gửi TCP traffic"""  
-        try:
-            # Sử dụng curl hoặc wget để mô phỏng TCP traffic
-            # Giả lập gửi dữ liệu TCP
-            host.cmd(f'curl -s -o /dev/null http://{dest_ip}:8080 --max-time 1 > /dev/null 2>&1 &')
-        except Exception as e:
-            print(f" TCP traffic error from {host.name}: {e}")
-    
-    def _log_traffic(self, source, destination, size, pattern):
-        """Log traffic ra file"""
-        log_entry = {
-            'timestamp': datetime.now().isoformat(),
-            'source': source,
-            'destination': destination, 
-            'size': size,
-            'pattern': pattern
-        }
-        
-        try:
-            os.makedirs('results', exist_ok=True)
-            with open('results/traffic_log.json', 'a') as f:
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception as e:
-            print(f" Error logging traffic: {e}")
-    
-    def stop_traffic(self):
-        """Dừng tất cả traffic"""
-        self.running = False
-        for thread in self.threads:
-            thread.join(timeout=1)
-        print(" All traffic stopped")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def generate_ddos_attack(net, target_ip='10.0.1.10', duration=60):
-    """Tạo DDoS attack scenario để test Q-learning"""
-    print(f"Generating DDoS attack to {target_ip} for {duration} seconds")
+class TrafficGenerator:
+    def __init__(self):
+        self.hosts = [
+            '10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4',
+            '10.0.0.5', '10.0.0.6', '10.0.0.7', '10.0.0.8'
+        ]
+        self.find_available_interface()
     
-    def attack_worker(host_name):
+    def find_available_interface(self):
+        """Tìm interface có sẵn để gửi traffic"""
         try:
-            host = net.get(host_name)
-            start_time = time.time()
+            # Thử các interface phổ biến
+            test_interfaces = ['eth0', 'eth1', 'ens33', 'ens32', 'eno1', 'wlan0']
+            for iface in test_interfaces:
+                try:
+                    # Kiểm tra interface có tồn tại không
+                    result = subprocess.run(['ip', 'link', 'show', iface], 
+                                          capture_output=True, text=True)
+                    if result.returncode == 0:
+                        self.interface = iface
+                        logging.info(f"Using interface: {iface}")
+                        return
+                except:
+                    continue
             
-            while time.time() - start_time < duration:
-                # Gửi nhiều packets liên tục
-                for _ in range(5):  # 5 packets mỗi lần
-                    host.cmd(f'ping -c 1 -W 1 {target_ip} > /dev/null 2>&1 &')
-                time.sleep(0.1)  # 10 packets mỗi giây
-                
-        except Exception as e:
-            print(f"Attack error from {host_name}: {e}")
-    
-    # Sử dụng tất cả IoT devices để tấn công
-    attackers = [
-        'motion_sensor', 'temp_sensor', 'smart_light', 
-        'pressure_sensor', 'vibration_sensor', 'heart_monitor',
-        'blood_pressure', 'air_quality', 'water_sensor', 'soil_sensor'
-    ]
-    
-    threads = []
-    for attacker in attackers:
-        try:
-            if net.get(attacker):
-                thread = threading.Thread(target=attack_worker, args=(attacker,))
-                thread.daemon = True
-                thread.start()
-                threads.append(thread)
-                print(f"  → {attacker} joining attack")
+            # Nếu không tìm thấy, sử dụng interface mặc định
+            self.interface = conf.iface
+            logging.info(f"Using default interface: {self.interface}")
         except:
-            pass
+            self.interface = None
+            logging.warning("No interface found, traffic generation may fail")
     
-    # Chờ kết thúc attack
-    print(f"DDoS attack running for {duration} seconds...")
-    time.sleep(duration)
-    print(" DDoS attack stopped")
-
-def main():
-    """Test traffic generator"""
-    print(" IoT Traffic Generator - Standalone Test")
+    def generate_icmp_traffic(self, count=10):
+        logging.info(f"Generating {count} ICMP packets")
+        success_count = 0
+        for i in range(count):
+            try:
+                src = random.choice(self.hosts)
+                dst = random.choice([h for h in self.hosts if h != src])
+                
+                packet = Ether()/IP(src=src, dst=dst)/ICMP()
+                if self.interface:
+                    sendp(packet, iface=self.interface, verbose=False)
+                else:
+                    sendp(packet, verbose=False)
+                success_count += 1
+                time.sleep(0.1)
+            except Exception as e:
+                logging.error(f"Failed to send ICMP packet: {e}")
+        
+        logging.info(f"Successfully sent {success_count}/{count} ICMP packets")
     
-    # This would typically be called from the experiment runner
-    print("Traffic generator module loaded successfully")
+    def generate_tcp_traffic(self, count=5):
+        logging.info(f"Generating {count} TCP packets")
+        success_count = 0
+        for i in range(count):
+            try:
+                src = random.choice(self.hosts)
+                dst = random.choice([h for h in self.hosts if h != src])
+                sport = random.randint(1024, 65535)
+                dport = random.randint(1, 1000)
+                
+                packet = Ether()/IP(src=src, dst=dst)/TCP(sport=sport, dport=dport)
+                if self.interface:
+                    sendp(packet, iface=self.interface, verbose=False)
+                else:
+                    sendp(packet, verbose=False)
+                success_count += 1
+                time.sleep(0.2)
+            except Exception as e:
+                logging.error(f"Failed to send TCP packet: {e}")
+        
+        logging.info(f"Successfully sent {success_count}/{count} TCP packets")
+    
+    def run(self):
+        logging.info("Starting traffic generator")
+        try:
+            while True:
+                self.generate_icmp_traffic(5)  # Giảm số lượng packet để test
+                time.sleep(2)
+                self.generate_tcp_traffic(3)   # Giảm số lượng packet để test
+                time.sleep(3)
+        except KeyboardInterrupt:
+            logging.info("Traffic generator stopped")
+        except Exception as e:
+            logging.error(f"Traffic generator error: {e}")
 
 if __name__ == "__main__":
-    main()
+    generator = TrafficGenerator()
+    generator.run()

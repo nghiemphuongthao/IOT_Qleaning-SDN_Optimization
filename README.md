@@ -1,21 +1,49 @@
-# IoT SDN with Q-learning Optimization
+# Q-learning SDN Routing Project
 
-Đồ án tốt nghiệp: Tối ưu hóa mạng IoT sử dụng SDN và Q-learning
+This project implements a Q-learning based routing algorithm in Software-Defined Networks (SDN) using Mininet, Ryu controller, and a custom Q-learning agent.
 
-## 🎯 Mục tiêu
+## Project Structure
+.
+├── configs
+│ ├── experiment.yaml
+│ └── network_params.yaml
+├── docker-compose.yml
+├── mininet-topology
+│ ├── Dockerfile
+│ └── topology.py
+├── qlearning-agent
+│ ├── Dockerfile
+│ ├── network_state_collector.py
+│ ├── q_agent.py
+│ └── requirements.txt
+├── ryu-controller
+│ ├── app.py
+│ └── Dockerfile
+└── traffic-generator
+├── Dockerfile
+└── traffic.py
 
-- Xây dựng mạng IoT mô phỏng với SDN controller
-- Triển khai Q-learning để tối ưu hóa routing và QoS
-- So sánh hiệu năng với các phương pháp truyền thống
+text
 
-## 🏗️ Kiến trúc hệ thống
-Server ←→ Gateway ←→ Controller ←→ Switch S1 ←→ Switches S2-S5 ←→ IoT Devices
+## Components
 
+- **Mininet Topology**: Creates the network topology with switches and hosts
+- **Ryu Controller**: SDN controller that manages network flow rules
+- **Q-learning Agent**: Implements reinforcement learning for optimal routing
+- **Traffic Generator**: Generates network traffic for testing
+- **Network State Collector**: Collects network statistics for the Q-learning agent
 
-## 🚀 Quick Start
+## Quick Start
 
-### 1. Setup environment
-
+1. Build and start the containers:
 ```bash
-chmod +x scripts/setup_environment.sh
-./scripts/setup_environment.sh
+docker-compose up --build
+The system will:
+
+Create Mininet topology
+
+Start Ryu controller
+
+Launch Q-learning agent
+
+Generate traffic patterns

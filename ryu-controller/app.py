@@ -2,71 +2,51 @@ from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls
 from ryu.ofproto import ofproto_v1_3
-from ryu.lib.packet import packet, ethernet, ipv4, arp
-from ryu.lib import hub
-import json, time, os, threading
-from flask import Flask, jsonify
+from ryu.lib.packet import packet, ethernet
+from webob import Response
+from ryu.app.wsgi import WSGIApplication, ControllerBase, route
+import json
 
-# -------------------------------
-# Tích hợp Flask API
-# -------------------------------
-app = Flask(__name__)
-
-class QLearningSDNController(app_manager.RyuApp):
+class SimpleSwitch13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
-    
+
+    _CONTEXTS = {'wsgi': WSGIApplication}
+
     def __init__(self, *args, **kwargs):
-        super(QLearningSDNController, self).__init__(*args, **kwargs)
+        super(SimpleSwitch13, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
-        self.datapaths = {}
-        self.flow_stats = {}
-        self.port_stats = {}
-        self.metrics_history = []
-        self.logger.info("QLearningSDNController initialized")
-
-        # Thread giám sát mạng
-        self.monitor_thread = hub.spawn(self._monitor_network)
-
-        # Khởi chạy Flask REST API server trong thread riêng
-        threading.Thread(target=self._start_rest_api, daemon=True).start()
-
-    # -------------------------------
-    # REST API cho Q-learning agent
-    # -------------------------------
-    def _start_rest_api(self):
-        @app.route('/state', methods=['GET'])
-        def get_state():
-            state = self.get_network_state()
-            return jsonify(state)
+        self.switches = {}
         
-        @app.route('/flows', methods=['GET'])
-        def get_flows():
-            return jsonify(self.flow_stats)
-        
-        app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+        # Setup WSGI for REST API
+        wsgi = kwargs['wsgi']
+        self.wsgi = wsgi
+        wsgi.register(StatsController, {'app': self})
 
-    # -------------------------------
-    # Các hàm xử lý Ryu gốc 
-    # -------------------------------
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
-        parser = datapath.ofproto_parser
         ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        self.logger.info(f"Switch connected: dpid={datapath.id}")
+        self.switches[datapath.id] = datapath
+
+        # Install default flow entry
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
-        self._add_flow(datapath, 0, match, actions)
-        self.datapaths[datapath.id] = datapath
-        self.logger.info(f"Switch {datapath.id} connected")
+        self.add_flow(datapath, 0, match, actions)
 
-    def _add_flow(self, datapath, priority, match, actions, buffer_id=None):
+    def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
+                                             actions)]
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
-                                    priority=priority, match=match, instructions=inst)
+                                    priority=priority, match=match,
+                                    instructions=inst)
         else:
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                     match=match, instructions=inst)
@@ -74,89 +54,127 @@ class QLearningSDNController(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
+        if ev.msg.msg_len < ev.msg.total_len:
+            self.logger.debug("packet truncated: only %s of %s bytes", 
+                              ev.msg.msg_len, ev.msg.total_len)
+            
         msg = ev.msg
         datapath = msg.datapath
-        parser = datapath.ofproto_parser
         ofproto = datapath.ofproto
-        in_port = msg.match.get('in_port', None)
-        if in_port is None:
-            return
+        parser = datapath.ofproto_parser
+        
+        in_port = msg.match['in_port']
+
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocol(ethernet.ethernet)
-        if not eth:
-            return
-        self.mac_to_port.setdefault(datapath.id, {})
-        self.mac_to_port[datapath.id][eth.src] = in_port
-        if eth.ethertype == 0x0806:
-            self._handle_arp(datapath, in_port, eth, pkt, msg.data)
-        elif eth.ethertype == 0x0800:
-            self._handle_ip_packet(datapath, in_port, eth, pkt, msg.data)
 
-    def _handle_arp(self, datapath, in_port, eth, pkt, data):
-        parser = datapath.ofproto_parser
-        ofproto = datapath.ofproto
-        actions = [parser.OFPActionOutput(ofproto.OFPP_FLOOD)]
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER,
-                                  in_port=in_port, actions=actions, data=data)
-        datapath.send_msg(out)
-
-    def _handle_ip_packet(self, datapath, in_port, eth, pkt, data):
-        parser = datapath.ofproto_parser
-        ofproto = datapath.ofproto
-        ip_pkt = pkt.get_protocol(ipv4.ipv4)
-        if not ip_pkt:
+        if eth is None:
             return
-        src_ip, dst_ip = ip_pkt.src, ip_pkt.dst
+
+        dst = eth.dst
+        src = eth.src
+
         dpid = datapath.id
-        out_port = self._get_optimal_path(dpid, src_ip, dst_ip, in_port)
-        if out_port is None:
-            return
+        self.mac_to_port.setdefault(dpid, {})
+
+        self.logger.info("Packet in - DPID: %s, SRC: %s, DST: %s, IN_PORT: %s", 
+                         dpid, src, dst, in_port)
+
+        # Learn MAC address
+        self.mac_to_port[dpid][src] = in_port
+
+        if dst in self.mac_to_port[dpid]:
+            out_port = self.mac_to_port[dpid][dst]
+        else:
+            out_port = ofproto.OFPP_FLOOD
+
         actions = [parser.OFPActionOutput(out_port)]
-        match = parser.OFPMatch(in_port=in_port, eth_src=eth.src, eth_dst=eth.dst,
-                                eth_type=eth.ethertype, ipv4_src=src_ip, ipv4_dst=dst_ip)
-        self._add_flow(datapath, 1, match, actions)
-        out = parser.OFPPacketOut(datapath=datapath,
-                                  buffer_id=ofproto.OFP_NO_BUFFER,
+
+        # Install flow entry if not flooding
+        if out_port != ofproto.OFPP_FLOOD:
+            match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
+            if msg.buffer_id != ofproto.OFP_NO_BUFFER:
+                self.add_flow(datapath, 1, match, actions, msg.buffer_id)
+                return
+            else:
+                self.add_flow(datapath, 1, match, actions)
+
+        # Send packet out
+        data = None
+        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+            data = msg.data
+
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
 
-    def _get_optimal_path(self, switch_id, src_ip, dst_ip, in_port):
-        if switch_id == 1:
-            if dst_ip.startswith('10.0.2.'): return 2
-            elif dst_ip.startswith('10.0.3.'): return 3
-            elif dst_ip.startswith('10.0.4.'): return 4
-            elif dst_ip.startswith('10.0.5.'): return 5
-        return datapath.ofproto.OFPP_FLOOD
+    def get_flow_stats(self):
+        """Get MAC learning table"""
+        return self.mac_to_port
 
-    def _monitor_network(self):
-        while True:
-            try:
-                for dp in list(self.datapaths.values()):
-                    self._request_stats(dp)
-                self._save_metrics()
-            except Exception as e:
-                self.logger.error(f"Monitor error: {e}")
-            hub.sleep(10)
+    def get_switches(self):
+        """Get connected switches"""
+        return list(self.switches.keys())
 
-    def _request_stats(self, datapath):
-        parser = datapath.ofproto_parser
-        ofproto = datapath.ofproto
-        datapath.send_msg(parser.OFPPortStatsRequest(datapath, 0, ofproto.OFPP_ANY))
-        datapath.send_msg(parser.OFPFlowStatsRequest(datapath))
+class StatsController(ControllerBase):
+    def __init__(self, req, link, data, **config):
+        super(StatsController, self).__init__(req, link, data, **config)
+        self.app = data['app']
 
-    def _save_metrics(self):
-        os.makedirs("results", exist_ok=True)
-        metrics = {
-            'switches': len(self.datapaths),
-            'mac_entries': sum(len(t) for t in self.mac_to_port.values()),
-            'timestamp': time.time()
-        }
-        with open("results/controller_metrics.json", "w") as f:
-            json.dump(metrics, f, indent=2)
+    @route('stats', '/stats/flow/{dpid}', methods=['GET'])
+    def get_flow_stats(self, req, dpid, **kwargs):
+        """Get flow statistics for specific switch"""
+        try:
+            stats = self.app.get_flow_stats()
+            dpid_int = int(dpid)
+            
+            if dpid_int in stats:
+                body = json.dumps({
+                    'dpid': dpid_int,
+                    'mac_to_port': stats[dpid_int]
+                })
+                return Response(content_type='application/json', body=body)
+            else:
+                return Response(
+                    status=404, 
+                    body=json.dumps({'error': f'Switch {dpid} not found'})
+                )
+        except ValueError:
+            return Response(
+                status=400, 
+                body=json.dumps({'error': 'Invalid DPID format'})
+            )
+        except Exception as e:
+            return Response(
+                status=500, 
+                body=json.dumps({'error': str(e)})
+            )
 
-    def get_network_state(self):
-        return {
-            'switch_count': len(self.datapaths),
-            'mac_entries': sum(len(t) for t in self.mac_to_port.values()),
-            'timestamp': time.time()
-        }
+    @route('portstats', '/stats/port/{dpid}', methods=['GET'])
+    def get_port_stats(self, req, dpid, **kwargs):
+        """Get port statistics for specific switch"""
+        try:
+            # In a real implementation, you would query the switch here
+            # This is dummy data for demonstration
+            dummy_data = {
+                'dpid': int(dpid),
+                'ports': {
+                    1: {'packets_rx': 100, 'bytes_rx': 10240, 'packets_tx': 95, 'bytes_tx': 9728},
+                    2: {'packets_rx': 150, 'bytes_rx': 15360, 'packets_tx': 145, 'bytes_tx': 14848},
+                    3: {'packets_rx': 80, 'bytes_rx': 8192, 'packets_tx': 78, 'bytes_tx': 7987}
+                }
+            }
+            body = json.dumps(dummy_data)
+            return Response(content_type='application/json; charset=utf-8', body=body)
+        except Exception as e:
+            return Response(status=500, body=json.dumps({'error': str(e)}))
+
+    @route('switches', '/stats/switches', methods=['GET'])
+    def get_switches(self, req, **kwargs):
+        """Get list of connected switches"""
+        try:
+            switches = self.app.get_switches()
+            body = json.dumps({'switches': switches})
+            return Response(content_type='application/json', body=body)
+        except Exception as e:
+            return Response(status=500, body=json.dumps({'error': str(e)}))

@@ -1,13 +1,21 @@
-FROM python:3.7-slim
-
-RUN apt-get update && apt-get install -y git iproute2 && \
-    pip install --no-cache-dir eventlet==0.30.2 ryu flask requests && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+FROM python:3.7
 
 WORKDIR /app
-COPY app.py /app/app.py
 
+# Cài đặt các dependencies hệ thống
+RUN apt-get update && apt-get install -y \
+    net-tools \
+    iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
 
-EXPOSE 8080 6633
+RUN pip install eventlet==0.30.2    
 
-CMD ["ryu-manager", "--observe-links", "app.py"]
+# Cài đặt Ryu
+RUN pip install ryu
+
+COPY app.py .
+
+# Expose ports cho OpenFlow và REST API
+EXPOSE 6633 8080
+
+CMD ["ryu-manager", "app.py", "--verbose", "--ofp-tcp-listen-port", "6633"]
