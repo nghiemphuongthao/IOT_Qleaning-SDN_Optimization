@@ -133,20 +133,26 @@ class StatsController(ControllerBase):
                     'dpid': dpid_int,
                     'mac_to_port': stats[dpid_int]
                 })
-                return Response(content_type='application/json', body=body)
+                return Response(
+                    content_type='application/json; charset=utf-8',
+                    body=body
+                )
             else:
                 return Response(
-                    status=404, 
+                    status=404,
+                    content_type='application/json; charset=utf-8',
                     body=json.dumps({'error': f'Switch {dpid} not found'})
                 )
         except ValueError:
             return Response(
-                status=400, 
+                status=400,
+                content_type='application/json; charset=utf-8', 
                 body=json.dumps({'error': 'Invalid DPID format'})
             )
         except Exception as e:
             return Response(
-                status=500, 
+                status=500,
+                content_type='application/json; charset=utf-8',
                 body=json.dumps({'error': str(e)})
             )
 
@@ -165,9 +171,16 @@ class StatsController(ControllerBase):
                 }
             }
             body = json.dumps(dummy_data)
-            return Response(content_type='application/json; charset=utf-8', body=body)
+            return Response(
+                content_type='application/json; charset=utf-8',
+                body=body
+            )
         except Exception as e:
-            return Response(status=500, body=json.dumps({'error': str(e)}))
+            return Response(
+                status=500,
+                content_type='application/json; charset=utf-8',
+                body=json.dumps({'error': str(e)})
+            )
 
     @route('switches', '/stats/switches', methods=['GET'])
     def get_switches(self, req, **kwargs):
@@ -175,6 +188,13 @@ class StatsController(ControllerBase):
         try:
             switches = self.app.get_switches()
             body = json.dumps({'switches': switches})
-            return Response(content_type='application/json', body=body)
+            return Response(
+                content_type='application/json; charset=utf-8',
+                body=body
+            )
         except Exception as e:
-            return Response(status=500, body=json.dumps({'error': str(e)}))
+            return Response(
+                status=500,
+                content_type='application/json; charset=utf-8',
+                body=json.dumps({'error': str(e)})
+            )
