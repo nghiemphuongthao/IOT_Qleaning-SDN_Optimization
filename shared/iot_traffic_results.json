@@ -1,0 +1,552 @@
+[
+  {
+    "timestamp": "2025-11-30T20:55:54.496883Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2033ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:55:57.570621Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:00.641354Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2065ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:03.473919Z",
+    "tag": "actuator_cmd 10.0.2.1->10.0.1.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.20', '-b', '0.1M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:04.474134Z",
+    "tag": "sensor_to_gateway 10.0.1.10->10.0.1.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.1', '-b', '0.1M', '-t', '3', '-p', '4001']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:06.477293Z",
+    "tag": "gateway_to_cloud 10.0.1.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '20M', '-t', '5', '-p', '4002']' timed out after 15 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:13.697224Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2040ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:16.769366Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:16.910976Z",
+    "tag": "actuator_cmd 10.0.2.1->10.0.2.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.20', '-b', '0.05M', '-t', '1', '-p', '4003']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:17.084487Z",
+    "tag": "sensor_to_gateway 10.0.1.11->10.0.2.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.1', '-b', '0.1M', '-t', '1', '-p', '4001']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:19.841204Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:23.995373Z",
+    "tag": "gateway_to_cloud 10.0.2.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '20M', '-t', '5', '-p', '4002']' timed out after 15 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:30.869225Z",
+    "tag": "actuator_cmd 10.0.2.1->10.0.3.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.20', '-b', '0.05M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:31.645159Z",
+    "tag": "sensor_to_gateway 10.0.2.10->10.0.3.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.1', '-b', '0.05M', '-t', '3', '-p', '4001']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:32.897359Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2040ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:35.969439Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:39.041440Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2067ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:41.848412Z",
+    "tag": "gateway_to_cloud 10.0.3.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '10M', '-t', '5', '-p', '4002']' timed out after 15 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:43.378739Z",
+    "tag": "sensor_to_gateway 10.0.2.11->10.0.4.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.4.1', '-b', '0.1M', '-t', '1', '-p', '4001']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:44.360780Z",
+    "tag": "actuator_cmd 10.0.3.1->10.0.4.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.4.20', '-b', '0.1M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:52.097578Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2040ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:55.169149Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:55.911381Z",
+    "tag": "sensor_to_gateway 10.0.3.10->10.0.1.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.1', '-b', '0.5M', '-t', '2', '-p', '4001']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:56.523513Z",
+    "tag": "actuator_cmd 10.0.4.1->10.0.1.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.20', '-b', '0.05M', '-t', '1', '-p', '4003']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:57.893310Z",
+    "tag": "gateway_to_cloud 10.0.4.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '5M', '-t', '3', '-p', '4002']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:56:58.242625Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2067ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:07.690582Z",
+    "tag": "sensor_to_gateway 10.0.3.11->10.0.2.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.1', '-b', '0.1M', '-t', '1', '-p', '4001']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:08.984723Z",
+    "tag": "actuator_cmd 10.0.100.2->10.0.2.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.20', '-b', '0.1M', '-t', '1', '-p', '4003']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:11.296878Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2046ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:14.368217Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2069ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:15.262117Z",
+    "tag": "gateway_to_cloud 10.0.1.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '5M', '-t', '3', '-p', '4002']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:17.441142Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:20.071462Z",
+    "tag": "sensor_to_gateway 10.0.4.10->10.0.3.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.1', '-b', '0.05M', '-t', '1', '-p', '4001']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:23.563893Z",
+    "tag": "actuator_cmd 10.0.1.1->10.0.3.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.20', '-b', '0.1M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:30.497252Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2043ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:32.981784Z",
+    "tag": "gateway_to_cloud 10.0.2.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '5M', '-t', '4', '-p', '4002']' timed out after 14 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:33.568969Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2065ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:34.448240Z",
+    "tag": "sensor_to_gateway 10.0.4.11->10.0.4.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.4.1', '-b', '0.05M', '-t', '3', '-p', '4001']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:36.641523Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2067ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:37.107172Z",
+    "tag": "actuator_cmd 10.0.100.2->10.0.4.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.4.20', '-b', '0.1M', '-t', '1', '-p', '4003']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:47.766460Z",
+    "tag": "sensor_to_gateway 10.0.1.10->10.0.1.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.1', '-b', '0.1M', '-t', '2', '-p', '4001']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:49.698373Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2040ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:51.386561Z",
+    "tag": "actuator_cmd 10.0.4.1->10.0.1.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.20', '-b', '0.05M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:52.397550Z",
+    "tag": "gateway_to_cloud 10.0.3.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '10M', '-t', '6', '-p', '4002']' timed out after 16 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:52.769641Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2065ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:57:55.841242Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2065ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:01.427403Z",
+    "tag": "sensor_to_gateway 10.0.1.11->10.0.2.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.1', '-b', '0.05M', '-t', '2', '-p', '4001']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:04.471635Z",
+    "tag": "actuator_cmd 10.0.3.1->10.0.2.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.20', '-b', '0.05M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:08.896255Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2040ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:11.969254Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2067ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:12.092136Z",
+    "tag": "gateway_to_cloud 10.0.4.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '20M', '-t', '5', '-p', '4002']' timed out after 15 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:15.041338Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2065ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:15.848978Z",
+    "tag": "sensor_to_gateway 10.0.2.10->10.0.3.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.1', '-b', '0.5M', '-t', '3', '-p', '4001']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:16.998058Z",
+    "tag": "actuator_cmd 10.0.1.1->10.0.3.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.20', '-b', '0.05M', '-t', '1', '-p', '4003']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:28.098282Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2040ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:30.260028Z",
+    "tag": "actuator_cmd 10.0.3.1->10.0.4.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.4.20', '-b', '0.1M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:30.300387Z",
+    "tag": "sensor_to_gateway 10.0.2.11->10.0.4.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.4.1', '-b', '0.5M', '-t', '3', '-p', '4001']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:30.351143Z",
+    "tag": "gateway_to_cloud 10.0.1.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '10M', '-t', '4', '-p', '4002']' timed out after 14 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:31.169438Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2064ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:34.242429Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2067ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:44.197358Z",
+    "tag": "actuator_cmd 10.0.3.1->10.0.1.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.20', '-b', '0.05M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:44.782112Z",
+    "tag": "sensor_to_gateway 10.0.3.10->10.0.1.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.1', '-b', '0.1M', '-t', '3', '-p', '4001']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:47.298217Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2041ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:48.139286Z",
+    "tag": "gateway_to_cloud 10.0.2.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '10M', '-t', '4', '-p', '4002']' timed out after 14 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:50.368883Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:53.441178Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:59.196125Z",
+    "tag": "actuator_cmd 10.0.1.1->10.0.2.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.20', '-b', '0.1M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:58:59.601211Z",
+    "tag": "sensor_to_gateway 10.0.3.11->10.0.2.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.1', '-b', '0.5M', '-t', '3', '-p', '4001']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:04.940373Z",
+    "tag": "gateway_to_cloud 10.0.3.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '5M', '-t', '3', '-p', '4002']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:06.497280Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2041ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:09.569643Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2065ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:11.545348Z",
+    "tag": "sensor_to_gateway 10.0.4.10->10.0.3.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.1', '-b', '0.5M', '-t', '1', '-p', '4001']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:12.080117Z",
+    "tag": "actuator_cmd 10.0.2.1->10.0.3.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.20', '-b', '0.1M', '-t', '1', '-p', '4003']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:12.641155Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2065ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:24.020287Z",
+    "tag": "sensor_to_gateway 10.0.4.11->10.0.4.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.4.1', '-b', '0.05M', '-t', '1', '-p', '4001']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:25.035084Z",
+    "tag": "gateway_to_cloud 10.0.4.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '10M', '-t', '6', '-p', '4002']' timed out after 16 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:25.698785Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2042ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:26.023536Z",
+    "tag": "actuator_cmd 10.0.4.1->10.0.4.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.4.20', '-b', '0.05M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:28.768324Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:31.840305Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2067ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:36.790481Z",
+    "tag": "sensor_to_gateway 10.0.1.10->10.0.1.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.1', '-b', '0.05M', '-t', '2', '-p', '4001']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:40.472434Z",
+    "tag": "actuator_cmd 10.0.1.1->10.0.1.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.20', '-b', '0.05M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:41.303239Z",
+    "tag": "gateway_to_cloud 10.0.1.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '5M', '-t', '3', '-p', '4002']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:44.897432Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2039ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:47.968452Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:51.041344Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2065ms"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:51.774390Z",
+    "tag": "sensor_to_gateway 10.0.1.11->10.0.2.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.1', '-b', '0.1M', '-t', '3', '-p', '4001']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:54.345746Z",
+    "tag": "actuator_cmd 10.0.4.1->10.0.2.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.20', '-b', '0.1M', '-t', '1', '-p', '4003']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T20:59:57.482209Z",
+    "tag": "gateway_to_cloud 10.0.2.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '20M', '-t', '4', '-p', '4002']' timed out after 14 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:03.368841Z",
+    "tag": "sensor_to_gateway 10.0.2.10->10.0.3.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.1', '-b', '0.5M', '-t', '1', '-p', '4001']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:04.097342Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2040ms"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:07.168892Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:07.444893Z",
+    "tag": "actuator_cmd 10.0.100.2->10.0.3.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.20', '-b', '0.1M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:10.239729Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2069ms"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:15.042346Z",
+    "tag": "gateway_to_cloud 10.0.3.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '5M', '-t', '5', '-p', '4002']' timed out after 15 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:17.525179Z",
+    "tag": "sensor_to_gateway 10.0.2.11->10.0.4.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.4.1', '-b', '0.05M', '-t', '3', '-p', '4001']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:20.360797Z",
+    "tag": "actuator_cmd 10.0.2.1->10.0.4.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.4.20', '-b', '0.05M', '-t', '1', '-p', '4003']' timed out after 11 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:23.297486Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2043ms"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:26.370153Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:29.441490Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2065ms"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:31.213935Z",
+    "tag": "sensor_to_gateway 10.0.3.10->10.0.1.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.1', '-b', '0.05M', '-t', '3', '-p', '4001']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:33.525466Z",
+    "tag": "actuator_cmd 10.0.100.2->10.0.1.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.1.20', '-b', '0.1M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:33.551348Z",
+    "tag": "gateway_to_cloud 10.0.4.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '10M', '-t', '5', '-p', '4002']' timed out after 15 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:42.497485Z",
+    "tag": "latency 10.0.1.10->10.0.100.2",
+    "output": "PING 10.0.100.2 (10.0.100.2) 56(84) bytes of data.\n\n--- 10.0.100.2 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2040ms"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:44.834232Z",
+    "tag": "sensor_to_gateway 10.0.3.11->10.0.2.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.1', '-b', '0.5M', '-t', '2', '-p', '4001']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:45.569226Z",
+    "tag": "latency 10.0.4.11->10.0.1.20",
+    "output": "PING 10.0.1.20 (10.0.1.20) 56(84) bytes of data.\n\n--- 10.0.1.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:47.633902Z",
+    "tag": "actuator_cmd 10.0.3.1->10.0.2.20",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.2.20', '-b', '0.1M', '-t', '2', '-p', '4003']' timed out after 12 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:48.640914Z",
+    "tag": "latency 10.0.2.10->10.0.3.20",
+    "output": "PING 10.0.3.20 (10.0.3.20) 56(84) bytes of data.\n\n--- 10.0.3.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2066ms"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:50.929407Z",
+    "tag": "gateway_to_cloud 10.0.1.1->10.0.100.2",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.100.2', '-b', '5M', '-t', '3', '-p', '4002']' timed out after 13 seconds"
+  },
+  {
+    "timestamp": "2025-11-30T21:00:57.373458Z",
+    "tag": "sensor_to_gateway 10.0.4.10->10.0.3.1",
+    "output": "iperf3-failed: Command '['iperf3', '-c', '10.0.3.1', '-b', '0.5M', '-t', '2', '-p', '4001']' timed out after 12 seconds"
+  }
+]

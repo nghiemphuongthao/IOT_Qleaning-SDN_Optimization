@@ -4,5 +4,6 @@ WORKDIR /app
 
 COPY topology_baseline.py .
 COPY topology_sdn.py .
+COPY run_topology.py .
 
-CMD ["python3", "topology_baseline.py"]
+CMD ["python3", "run_topology.py"]

@@ -1,44 +1,146 @@
-version: "3.8"
+version: '3.8'
 
 services:
-  ryu:
-    build:
-      context: .
-      dockerfile: Dockerfile-ryu
-    container_name: ryu
-    ports:
-      - "6633:6633"
-      - "8080:8080"
-    networks:
-      - sdn-net
-    restart: unless-stopped
 
-  mininet:
-    image: ubuntu:22.04
-    container_name: mininet
-    depends_on:
-      - ryu
-    network_mode: "service:ryu"   # dùng chung network với Ryu
+  # -----------------------
+  # BASELINE TOPO
+  # -----------------------
+
+  mininet-baseline:
+    build:
+      context: ./mininet-topology
+      dockerfile: Dockerfile
+    container_name: mininet-baseline
     tty: true
     stdin_open: true
     cap_add:
       - NET_ADMIN
     privileged: true
-    command: bash
-    restart: unless-stopped
+    environment:
+      - MODE=baseline
+      # Không cần CONTROLLER_IP và CONTROLLER_PORT nữa
+    command: ["python3", "run_topology.py", "baseline"]
+    networks:
+      baseline-net:
+        ipv4_address: 172.21.0.3
+    restart: "no"
 
-  traffic-gen:
-    image: ubuntu:22.04
-    container_name: traffic-gen
+  traffic-baseline:
+    build:
+      context: ./traffic-generator
+      dockerfile: Dockerfile
+    container_name: traffic-baseline
     depends_on:
-      - mininet
-    network_mode: "service:mininet"
+      - mininet-baseline
     tty: true
     stdin_open: true
     privileged: true
-    command: bash
-    restart: unless-stopped
+    environment:
+      - MODE=baseline
+      - TARGET_NETWORK=mininet-baseline
+    command: ["python3", "traffic.py", "baseline"]
+    volumes:
+      - ./shared:/shared
+    networks:
+      baseline-net:
+        ipv4_address: 172.21.0.4
+    restart: "no"
+
+  # -----------------------
+  # SDN TOPO
+  # -----------------------
+
+  ryu-sdn:
+    build:
+      context: ./ryu-controller
+      dockerfile: Dockerfile
+    container_name: ryu-sdn
+    ports:
+      - "6634:6633"
+      - "8081:8080"
+    environment:
+      - MODE=sdn
+    networks:
+      sdn-net:
+        ipv4_address: 172.22.0.2
+    volumes:
+      - ./shared:/shared
+    restart: "no"
+
+  mininet-sdn:
+    build:
+      context: ./mininet-topology
+      dockerfile: Dockerfile
+    container_name: mininet-sdn
+    depends_on:
+      - ryu-sdn
+    tty: true
+    stdin_open: true
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    environment:
+      - MODE=sdn
+      - CONTROLLER_IP=ryu-sdn
+      - CONTROLLER_PORT=6633
+    command: ["python3", "run_topology.py", "sdn"]
+    networks:
+      sdn-net:
+        ipv4_address: 172.22.0.3
+    restart: "no"
+
+  iot-traffic-gen:
+    build:
+      context: ./traffic-generator
+      dockerfile: Dockerfile
+    container_name: iot-traffic-gen
+    depends_on:
+      - mininet-sdn
+    tty: true
+    stdin_open: true
+    privileged: true
+    environment:
+      - MODE=sdn
+      - TARGET_NETWORK=ryu-sdn
+    command: ["python3", "traffic.py", "sdn"]
+    volumes:
+      - ./shared:/shared
+    networks:
+      sdn-net:
+        ipv4_address: 172.22.0.4
+    restart: "no"
+
+  qlearning-agent:
+    build:
+      context: ./qlearning-agent
+      dockerfile: Dockerfile
+    container_name: qlearning-agent
+    depends_on:
+      - ryu-sdn
+      - mininet-sdn
+    environment:
+      - MODE=sdn_qlearning
+      - RYU_CONTROLLER_URL=http://ryu-sdn:8080
+    volumes:
+      - ./shared:/shared
+      - ./configs:/app/configs
+    networks:
+      sdn-net:
+        ipv4_address: 172.22.0.5
+    restart: "no"
+    command: ["python3", "q_agent.py"]
 
 networks:
+  baseline-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+          gateway: 172.21.0.1
+
   sdn-net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+          gateway: 172.22.0.1

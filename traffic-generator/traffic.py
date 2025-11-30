@@ -1,195 +1,177 @@
 #!/usr/bin/env python3
+"""
+traffic.py - IoT-style traffic generator for Mininet + Ryu setup.
 
+Usage:
+    python3 traffic.py <network_name>
+Examples:
+    python3 traffic.py baseline
+    python3 traffic.py sdn
+
+Behavior:
+ - If iperf3 is available and network targets are reachable (Mininet services present),
+   it will attempt to run iperf3 client commands.
+ - If iperf3 not available or fails, it will FALLBACK to simulated traffic (log-only)
+ - Results are stored into /shared/iot_traffic_results.json (mount ./shared:/shared)
+"""
+
+import sys
 import time
 import random
-import threading
-import subprocess
 import json
+import subprocess
 from datetime import datetime
+import signal
 
-class TrafficGenerator:
-    def __init__(self, target_network):
-        self.target_network = target_network
+RESULT_FILE = "/shared/iot_traffic_results.json"
+
+# Simple cleanup on SIGTERM / SIGINT
+running = True
+def _stop(signum, frame):
+    global running
+    running = False
+
+signal.signal(signal.SIGINT, _stop)
+signal.signal(signal.SIGTERM, _stop)
+
+class IoTTrafficGenerator:
+    def __init__(self, network_name):
+        self.network_name = network_name
         self.results = []
-        # Define hosts in different subnets for realistic traffic patterns
-        self.hosts = [
-            '10.0.1.1', '10.0.1.2', '10.0.1.3',
-            '10.0.2.1', '10.0.2.2',
-            '10.0.3.1', '10.0.3.2', 
-            '10.0.4.1', '10.0.4.2', '10.0.4.3',
-            '10.0.100.2'
+        # default device addresses that correspond to your mininet topology
+        self.sensors = [
+            '10.0.1.10', '10.0.1.11', '10.0.2.10', '10.0.2.11',
+            '10.0.3.10', '10.0.3.11', '10.0.4.10', '10.0.4.11'
         ]
-        
-    def generate_mixed_traffic(self):
-        """Generate mixed traffic patterns"""
-        print("Starting mixed traffic generation...")
-        
-        # Cross-subnet traffic
-        cross_subnet_thread = threading.Thread(target=self._cross_subnet_traffic)
-        cross_subnet_thread.daemon = True
-        cross_subnet_thread.start()
-        
-        # Intra-subnet traffic
-        intra_subnet_thread = threading.Thread(target=self._intra_subnet_traffic)
-        intra_subnet_thread.daemon = True
-        intra_subnet_thread.start()
-        
-        # Cloud traffic
-        cloud_traffic_thread = threading.Thread(target=self._cloud_traffic)
-        cloud_traffic_thread.daemon = True
-        cloud_traffic_thread.start()
-    
-    def _cross_subnet_traffic(self):
-        """Generate traffic between different subnets"""
-        while True:
-            try:
-                src = random.choice(self.hosts)
-                dst = random.choice([h for h in self.hosts if h != src])
-                bandwidth = random.choice(['10M', '5M', '20M'])
-                duration = random.randint(10, 30)
-                
-                cmd = [
-                    'iperf', '-c', dst, '-b', bandwidth,
-                    '-t', str(duration), '-i', '1', '-p', '5001'
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                self._log_traffic(f'cross_subnet_{src}_{dst}', result.stdout)
-                time.sleep(random.randint(5, 15))
-            except Exception as e:
-                print(f"Cross-subnet traffic error: {e}")
-                time.sleep(10)
-    
-    def _intra_subnet_traffic(self):
-        """Generate traffic within the same subnet"""
-        subnets = {
-            'subnet1': ['10.0.1.1', '10.0.1.2', '10.0.1.3'],
-            'subnet2': ['10.0.2.1', '10.0.2.2'],
-            'subnet3': ['10.0.3.1', '10.0.3.2'],
-            'subnet4': ['10.0.4.1', '10.0.4.2', '10.0.4.3'],
-        }
-        
-        while True:
-            try:
-                subnet = random.choice(list(subnets.keys()))
-                hosts = subnets[subnet]
-                if len(hosts) >= 2:
-                    src, dst = random.sample(hosts, 2)
-                    bandwidth = random.choice(['1M', '5M', '10M'])
-                    duration = random.randint(5, 20)
-                    
-                    cmd = [
-                        'iperf', '-c', dst, '-b', bandwidth,
-                        '-t', str(duration), '-i', '1', '-p', '5002'
-                    ]
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    self._log_traffic(f'intra_{subnet}_{src}_{dst}', result.stdout)
-                time.sleep(random.randint(3, 10))
-            except Exception as e:
-                print(f"Intra-subnet traffic error: {e}")
-                time.sleep(10)
-    
-    def _cloud_traffic(self):
-        """Generate traffic to cloud server"""
-        cloud_server = '10.0.100.2'
-        sources = ['10.0.1.1', '10.0.2.1', '10.0.3.1', '10.0.4.1']
-        
-        while True:
-            try:
-                src = random.choice(sources)
-                bandwidth = random.choice(['50M', '100M', '30M'])
-                duration = random.randint(15, 45)
-                
-                cmd = [
-                    'iperf', '-c', cloud_server, '-b', bandwidth,
-                    '-t', str(duration), '-i', '1', '-p', '5003'
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                self._log_traffic(f'cloud_{src}', result.stdout)
-                time.sleep(random.randint(10, 20))
-            except Exception as e:
-                print(f"Cloud traffic error: {e}")
-                time.sleep(10)
-    
-    def generate_latency_test(self):
-        """Test latency between different network segments"""
-        print("Starting latency tests...")
-        
-        test_pairs = [
-            ('10.0.1.1', '10.0.100.2'),
-            ('10.0.4.3', '10.0.1.2'),
-            ('10.0.2.1', '10.0.3.1'),
-        ]
-        
-        for src, dst in test_pairs:
-            try:
-                cmd = ['ping', '-c', '10', '-s', '64', '-i', '0.1', dst]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                self._log_traffic(f'latency_{src}_{dst}', result.stdout)
-                time.sleep(2)
-            except Exception as e:
-                print(f"Latency test error for {src} to {dst}: {e}")
-    
-    def _log_traffic(self, traffic_type, output):
-        """Log traffic results"""
-        timestamp = datetime.now().isoformat()
-        log_entry = {
-            'timestamp': timestamp,
-            'type': traffic_type,
-            'output': output
-        }
-        self.results.append(log_entry)
-        
-        # Save to file periodically
-        if len(self.results) % 5 == 0:
-            self._save_results()
-    
-    def _save_results(self):
-        """Save results to JSON file"""
+        self.gateways = ['10.0.1.1', '10.0.2.1', '10.0.3.1', '10.0.4.1']
+        self.actuators = ['10.0.1.20', '10.0.2.20', '10.0.3.20', '10.0.4.20']
+        self.cloud_server = '10.0.100.2'  # your cloud host in topology
+        self.use_iperf = self._check_iperf()
+
+    def _check_iperf(self):
         try:
-            with open('/shared/traffic_results.json', 'w') as f:
+            res = subprocess.run(["iperf3", "--version"], capture_output=True, text=True, timeout=5)
+            return res.returncode == 0
+        except Exception:
+            return False
+
+    def _log(self, tag, output):
+        entry = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "tag": tag,
+            "output": output
+        }
+        self.results.append(entry)
+        # flush periodically
+        if len(self.results) % 5 == 0:
+            self._save()
+        return entry
+
+    def _save(self):
+        try:
+            with open(RESULT_FILE, "w") as f:
                 json.dump(self.results, f, indent=2)
         except Exception as e:
-            print(f"Error saving results: {e}")
-    
-    def run_complete_scenario(self, duration=300):
-        """Run complete traffic scenario"""
-        print(f"Starting complete traffic scenario for {duration} seconds")
-        
-        # Start background traffic
-        self.generate_mixed_traffic()
-        
-        # Run specific scenarios at intervals
-        start_time = time.time()
-        scenario_count = 0
-        
-        while time.time() - start_time < duration:
-            current_time = time.time() - start_time
-            
-            if scenario_count == 0 and current_time > 60:
-                print("=== Starting Latency Test ===")
-                self.generate_latency_test()
-                scenario_count += 1
-            
-            elif scenario_count == 1 and current_time > 180:
-                print("=== Starting Intensive Traffic ===")
-                # Already running mixed traffic
-                scenario_count += 1
-            
-            time.sleep(10)
-        
-        # Final save
-        self._save_results()
-        print("Traffic generation completed")
+            print("Error saving results:", e)
 
-if __name__ == '__main__':
-    import sys
-    
-    if len(sys.argv) != 2:
-        print("Usage: python3 traffic.py <target_network>")
+    def _run_iperf(self, dst, bandwidth="1M", duration=3, port=5201):
+        cmd = ["iperf3", "-c", dst, "-b", bandwidth, "-t", str(duration), "-p", str(port)]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=duration+10)
+            return r.stdout.strip()
+        except Exception as e:
+            return f"iperf3-failed: {e}"
+
+    def sensor_to_gateway(self):
+        while running:
+            for s, gw in zip(self.sensors, self.gateways * 2):
+                if not running: break
+                bw = random.choice(["0.05M", "0.1M", "0.5M"])
+                dur = random.randint(1, 3)
+                tag = f"sensor_to_gateway {s}->{gw}"
+                if self.use_iperf:
+                    out = self._run_iperf(gw, bandwidth=bw, duration=dur, port=4001)
+                else:
+                    out = f"mock {tag} bw={bw} dur={dur}s"
+                print(tag, out.splitlines()[0] if out else "")
+                self._log(tag, out)
+                time.sleep(random.uniform(0.5, 2.0))
+
+    def gateway_to_cloud(self):
+        while running:
+            for gw in self.gateways:
+                if not running: break
+                bw = random.choice(["5M", "10M", "20M"])
+                dur = random.randint(3, 6)
+                tag = f"gateway_to_cloud {gw}->{self.cloud_server}"
+                if self.use_iperf:
+                    out = self._run_iperf(self.cloud_server, bandwidth=bw, duration=dur, port=4002)
+                else:
+                    out = f"mock {tag} bw={bw} dur={dur}s"
+                print(tag)
+                self._log(tag, out)
+                time.sleep(random.uniform(2.0, 5.0))
+
+    def actuator_commands(self):
+        while running:
+            for act in self.actuators:
+                if not running: break
+                src = random.choice(self.gateways + [self.cloud_server])
+                bw = random.choice(["0.05M", "0.1M"])
+                dur = random.randint(1, 2)
+                tag = f"actuator_cmd {src}->{act}"
+                if self.use_iperf:
+                    out = self._run_iperf(act, bandwidth=bw, duration=dur, port=4003)
+                else:
+                    out = f"mock {tag} bw={bw} dur={dur}s"
+                print(tag)
+                self._log(tag, out)
+                time.sleep(random.uniform(1.0, 3.0))
+
+    def latency_test(self):
+        # Quick ping checks (non-blocking)
+        pairs = [
+            ("10.0.1.10", self.cloud_server),
+            ("10.0.4.11", "10.0.1.20"),
+            ("10.0.2.10", "10.0.3.20")
+        ]
+        for src, dst in pairs:
+            if not running: break
+            try:
+                p = subprocess.run(["ping", "-c", "3", "-W", "1", dst], capture_output=True, text=True, timeout=10)
+                out = p.stdout.strip()
+            except Exception as e:
+                out = f"ping-failed: {e}"
+            self._log(f"latency {src}->{dst}", out)
+
+    def run(self, runtime=300):
+        # Start threads
+        import threading
+        threads = [
+            threading.Thread(target=self.sensor_to_gateway, daemon=True),
+            threading.Thread(target=self.gateway_to_cloud, daemon=True),
+            threading.Thread(target=self.actuator_commands, daemon=True)
+        ]
+        for t in threads:
+            t.start()
+
+        start = time.time()
+        while running and (time.time() - start) < runtime:
+            # periodic latency tests
+            self.latency_test()
+            time.sleep(10)
+
+        # finish
+        self._save()
+        print("Traffic generator exiting.")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python3 traffic.py <network_name>")
         sys.exit(1)
-    
-    target_network = sys.argv[1]
-    generator = TrafficGenerator(target_network)
-    
-    # Run for 5 minutes
-    generator.run_complete_scenario(300)
+    network = sys.argv[1]
+    g = IoTTrafficGenerator(network)
+    # default runtime 5 minutes; you can change via env var if desired
+    runtime = int(sys.argv[2]) if len(sys.argv) > 2 else 300
+    g.run(runtime)

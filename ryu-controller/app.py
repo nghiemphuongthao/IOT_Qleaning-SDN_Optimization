@@ -13,12 +13,9 @@ import time
 class SDNRouter(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     _CONTEXTS = {'switches': switches.Switches}
-    MODE = os.environ.get("MODE", "baseline")
 
-    if MODE == "baseline":
-        print("[RYU] Disabled in baseline mode")
-        while True:
-            time.sleep(1000)
+    MODE = os.environ.get("MODE", "baseline")
+    IS_BASELINE = MODE == "baseline"
 
     def __init__(self, *args, **kwargs):
         super(SDNRouter, self).__init__(*args, **kwargs)
@@ -26,10 +23,18 @@ class SDNRouter(app_manager.RyuApp):
         self.net = nx.DiGraph()
         self.topo_ready = False
 
+        if self.IS_BASELINE:
+            self.logger.info("[RYU] Baseline mode enabled — routing disabled but controller still active.")
 
+
+    # -------------------------------
+    # INSTALL TABLE MISS ENTRY
+    # -------------------------------
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
-        """Install table miss entry"""
+        if self.IS_BASELINE:
+            return  # Baseline = chỉ giữ Ryu hoạt động
+
         datapath = ev.msg.datapath
         parser = datapath.ofproto_parser
         ofproto = datapath.ofproto
@@ -45,18 +50,23 @@ class SDNRouter(app_manager.RyuApp):
         ))
 
 
+    # -------------------------------
+    # TOPOLOGY DISCOVERY
+    # -------------------------------
     @set_ev_cls(event.EventSwitchEnter)
     def topo_discover(self, ev):
-        """Discover topology when switch join"""
-        switches = get_switch(self, None)
-        links = get_link(self, None)
+        if self.IS_BASELINE:
+            return
+
+        switches_list = get_switch(self, None)
+        links_list = get_link(self, None)
 
         self.net.clear()
 
-        for s in switches:
+        for s in switches_list:
             self.net.add_node(s.dp.id)
 
-        for l in links:
+        for l in links_list:
             src = l.src
             dst = l.dst
             self.net.add_edge(src.dpid, dst.dpid, port=src.port_no)
@@ -69,9 +79,14 @@ class SDNRouter(app_manager.RyuApp):
         self.topo_ready = True
 
 
+    # -------------------------------
+    # PACKET-IN HANDLER
+    # -------------------------------
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def packet_in_handler(self, ev):
-        """Handle packet and compute path if needed"""
+        if self.IS_BASELINE:
+            return  # Baseline mode: không xử lý routing
+
         msg = ev.msg
         dp = msg.datapath
         parser = dp.ofproto_parser
@@ -81,7 +96,7 @@ class SDNRouter(app_manager.RyuApp):
 
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocol(ethernet.ethernet)
-        if eth.ethertype == 0x88cc:  # Ignore LLDP
+        if eth.ethertype == 0x88cc:  # LLDP
             return
 
         src = eth.src
@@ -90,30 +105,30 @@ class SDNRouter(app_manager.RyuApp):
         self.mac_to_port.setdefault(dpid, {})
         self.mac_to_port[dpid][src] = in_port
 
-        # If we know destination location → compute path
+        # Known destination?
         if dst in self.mac_to_port[dpid]:
             out_port = self.mac_to_port[dpid][dst]
         else:
-            # Destination in another switch?
+            # Check other switches
             location = None
             for sw in self.mac_to_port:
                 if dst in self.mac_to_port[sw]:
                     location = sw
                     break
 
-            if location is None:
+            if location is None or not self.topo_ready:
                 out_port = ofproto.OFPP_FLOOD
             else:
-                if not self.topo_ready:
-                    out_port = ofproto.OFPP_FLOOD
-                else:
-                    # Compute shortest path between dp and destination-switch
+                # Compute path safely
+                try:
                     path = nx.shortest_path(self.net, dpid, location)
                     next_hop = path[1]
                     out_port = self.net[dpid][next_hop]['port']
                     self.logger.info(f"Path {src} → {dst} = {path}")
+                except:
+                    out_port = ofproto.OFPP_FLOOD
 
-        # Install flow for fast path
+        # Install fast-forward flow
         actions = [parser.OFPActionOutput(out_port)]
         match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
 
@@ -125,7 +140,6 @@ class SDNRouter(app_manager.RyuApp):
             )]
         ))
 
-        # Forward packet
         dp.send_msg(parser.OFPPacketOut(
             datapath=dp,
             buffer_id=msg.buffer_id,

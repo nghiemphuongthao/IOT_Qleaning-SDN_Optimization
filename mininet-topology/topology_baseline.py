@@ -8,6 +8,7 @@ from mininet.cli import CLI
 from mininet.log import setLogLevel, info
 import os
 
+
 # =======================================
 # Define a Linux Router Node
 # =======================================
@@ -68,7 +69,7 @@ class StaticRoutingTopo(Topo):
 # =======================================
 # Configure Static Routes
 # =======================================
-def run():
+def main():
     topo = StaticRoutingTopo()
     net = Mininet(topo=topo, controller=OVSController, link=TCLink)
     net.start()
@@ -143,6 +144,4 @@ def run():
 # Main
 # =======================================
 if __name__ == '__main__':
-    setLogLevel('info')
-    os.system('sudo mn -c')
-    run()
+    main()
