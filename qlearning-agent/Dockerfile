@@ -1,10 +1,10 @@
-FROM python:3.8
+FROM python:3.7
 
-WORKDIR /app
+RUN apt-get update && apt-get install -y build-essential python3-dev libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir pyzmq numpy scipy tensorflow==2.11.0 scikit-learn
 
-COPY . .
-
-CMD ["python3", "q_agent.py"]
+WORKDIR /agent
+COPY . /agent
+CMD ["python", "q_agent.py"]

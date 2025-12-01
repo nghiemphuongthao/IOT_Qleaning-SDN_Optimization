@@ -1,2 +1,7 @@
-logs
-results
+# Python
+__pycache__/
+*.pyc
+
+# Docker
+*.log
+shared/

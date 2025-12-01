@@ -1,46 +1,23 @@
-# Q-learning SDN Routing Project
+# IoT-SDN-Qlearning Project (Level 3 - Distributed with ZeroMQ)
 
-This project implements a Q-learning based routing algorithm in Software-Defined Networks (SDN) using Mininet, Ryu controller, and a custom Q-learning agent.
+## Yêu cầu
+- Docker, Docker Compose
+- Máy có >=8GB RAM (nên có GPU nếu train nhanh)
+- Chạy trên Linux preferred (Mininet privileged)
 
-## Project Structure
-.
-├── configs
-│ ├── experiment.yaml
-│ └── network_params.yaml
-├── docker-compose.yml
-├── mininet-topology
-│ ├── Dockerfile
-│ └── topology.py
-├── qlearning-agent
-│ ├── Dockerfile
-│ ├── network_state_collector.py
-│ ├── q_agent.py
-│ └── requirements.txt
-├── ryu-controller
-│ ├── app.py
-│ └── Dockerfile
-└── traffic-generator
-├── Dockerfile
-└── traffic.py
+## Chạy nhanh
+1. Build & run:
+docker compose build --no-cache
+docker compose up --build
 
-text
+2. Logs:
+docker logs -f ryu-controller
+docker logs -f qlearning-agent
+docker logs -f mininet-topology
+docker logs -f traffic-generator
 
-## Components
 
-- **Mininet Topology**: Creates the network topology with switches and hosts
-- **Ryu Controller**: SDN controller that manages network flow rules
-- **Q-learning Agent**: Implements reinforcement learning for optimal routing
-- **Traffic Generator**: Generates network traffic for testing
-
-## Quick Start
-
-1. Build and start the containers:
-```bash
-docker-compose up --build
-The system will:
-
-Create Mininet topology
-
-Start Ryu controller
-
-Launch Q-learning agent
+## Lưu ý
+- Mininet container cần `privileged: true`.
+- Nếu container name conflict, `docker rm -f <name>` trước.
+- Models, logs, results lưu ở folder `./shared`.

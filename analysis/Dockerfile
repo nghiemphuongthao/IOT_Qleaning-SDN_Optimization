@@ -13,4 +13,4 @@ COPY . .
 
 VOLUME /shared
 
-CMD ["python", "analyze_results.py"]
+

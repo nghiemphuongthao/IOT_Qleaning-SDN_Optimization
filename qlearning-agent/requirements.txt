@@ -1,6 +1,5 @@
-# TensorFlow compatible with Python 3.9
+pyzmq
+numpy
+scipy
 tensorflow==2.11.0
-keras==2.11.0
-numpy==1.21.6
-requests==2.25.1
-PyYAML==5.4.1
+scikit-learn

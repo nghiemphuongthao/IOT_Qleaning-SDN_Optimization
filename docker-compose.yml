@@ -1,146 +1,78 @@
-version: '3.8'
-
 services:
-
-  # -----------------------
-  # BASELINE TOPO
-  # -----------------------
-
-  mininet-baseline:
-    build:
-      context: ./mininet-topology
-      dockerfile: Dockerfile
-    container_name: mininet-baseline
-    tty: true
-    stdin_open: true
-    cap_add:
-      - NET_ADMIN
-    privileged: true
-    environment:
-      - MODE=baseline
-      # Không cần CONTROLLER_IP và CONTROLLER_PORT nữa
-    command: ["python3", "run_topology.py", "baseline"]
+  ryu-controller:
+    build: ./ryu-controller
+    container_name: ryu-controller
     networks:
-      baseline-net:
-        ipv4_address: 172.21.0.3
-    restart: "no"
-
-  traffic-baseline:
-    build:
-      context: ./traffic-generator
-      dockerfile: Dockerfile
-    container_name: traffic-baseline
-    depends_on:
-      - mininet-baseline
-    tty: true
-    stdin_open: true
-    privileged: true
-    environment:
-      - MODE=baseline
-      - TARGET_NETWORK=mininet-baseline
-    command: ["python3", "traffic.py", "baseline"]
-    volumes:
-      - ./shared:/shared
-    networks:
-      baseline-net:
-        ipv4_address: 172.21.0.4
-    restart: "no"
-
-  # -----------------------
-  # SDN TOPO
-  # -----------------------
-
-  ryu-sdn:
-    build:
-      context: ./ryu-controller
-      dockerfile: Dockerfile
-    container_name: ryu-sdn
+      - sdn-net
     ports:
-      - "6634:6633"
-      - "8081:8080"
-    environment:
-      - MODE=sdn
-    networks:
-      sdn-net:
-        ipv4_address: 172.22.0.2
+      - "6633:6633"   # OpenFlow
+      - "5556:5556"   # ZMQ PUB
+      - "5557:5557"   # ZMQ REP
     volumes:
       - ./shared:/shared
-    restart: "no"
-
-  mininet-sdn:
-    build:
-      context: ./mininet-topology
-      dockerfile: Dockerfile
-    container_name: mininet-sdn
-    depends_on:
-      - ryu-sdn
-    tty: true
-    stdin_open: true
-    cap_add:
-      - NET_ADMIN
-    privileged: true
     environment:
-      - MODE=sdn
-      - CONTROLLER_IP=ryu-sdn
-      - CONTROLLER_PORT=6633
-    command: ["python3", "run_topology.py", "sdn"]
-    networks:
-      sdn-net:
-        ipv4_address: 172.22.0.3
-    restart: "no"
-
-  iot-traffic-gen:
-    build:
-      context: ./traffic-generator
-      dockerfile: Dockerfile
-    container_name: iot-traffic-gen
-    depends_on:
-      - mininet-sdn
-    tty: true
-    stdin_open: true
-    privileged: true
-    environment:
-      - MODE=sdn
-      - TARGET_NETWORK=ryu-sdn
-    command: ["python3", "traffic.py", "sdn"]
-    volumes:
-      - ./shared:/shared
-    networks:
-      sdn-net:
-        ipv4_address: 172.22.0.4
-    restart: "no"
+      - ZMQ_PUB_PORT=5556
+      - ZMQ_REP_PORT=5557
+    restart: unless-stopped
 
   qlearning-agent:
-    build:
-      context: ./qlearning-agent
-      dockerfile: Dockerfile
+    build: ./qlearning-agent
     container_name: qlearning-agent
+    networks:
+      - sdn-net
     depends_on:
-      - ryu-sdn
-      - mininet-sdn
-    environment:
-      - MODE=sdn_qlearning
-      - RYU_CONTROLLER_URL=http://ryu-sdn:8080
+      - ryu-controller
     volumes:
       - ./shared:/shared
-      - ./configs:/app/configs
+    environment:
+      - ZMQ_PUB_ADDR=tcp://ryu-controller:5556
+      - ZMQ_REQ_ADDR=tcp://ryu-controller:5557
+    restart: on-failure
+
+  mininet-topology:
+    build:
+      context: ./mininet-topology
+      dockerfile: Dockerfile
+    container_name: mininet-topology
+    privileged: true
+    tty: true   
+    restart: unless-stopped
+    environment:
+      - TOPO_CASE=standalone # thay đổi sang ryu hoặc ryu_qlearning khi cần
+      - CONTROLLER_IP= none
     networks:
-      sdn-net:
-        ipv4_address: 172.22.0.5
-    restart: "no"
-    command: ["python3", "q_agent.py"]
+      - sdn-net
+    depends_on:
+      - ryu-controller
+      - qlearning-agent
+    volumes:
+      - ./shared:/shared
+      - mininet-ovsdb:/var/lib/openvswitch
+
+  traffic-generator:
+    build: ./traffic-generator
+    container_name: traffic-generator
+    networks:
+      - sdn-net
+    depends_on:
+      - mininet-topology
+    volumes:
+      - ./shared:/shared
+    restart: unless-stopped
+
+  analysis:
+    build: ./analysis
+    container_name: analysis
+    volumes:
+      - ./analysis:/app
+    depends_on:
+      - mininet-topology
+    restart: unless-stopped
+
+
+volumes:
+  mininet-ovsdb:
 
 networks:
-  baseline-net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.21.0.0/24
-          gateway: 172.21.0.1
-
   sdn-net:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.22.0.0/24
-          gateway: 172.22.0.1
