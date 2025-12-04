@@ -1,9 +1,0 @@
-{
-  "comparison_timestamp": "2025-11-29T15:15:11.824791",
-  "cases": {
-    "baseline": {},
-    "sdn": {},
-    "sdn_qlearning": {}
-  },
-  "improvements": {}
-}

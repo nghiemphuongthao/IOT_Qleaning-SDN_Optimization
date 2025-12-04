@@ -1,6 +1,6 @@
 FROM iwaseyusuke/mininet:latest
 
-# Cài các gói cần thiết
+# Cài thêm các gói cần thiết (nếu còn thiếu)
 RUN apt-get update && \
     apt-get install -y \
         openvswitch-switch \
@@ -10,13 +10,15 @@ RUN apt-get update && \
         python3-pip && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy topo
+# Copy file topo + entrypoint
 COPY topology.py /topo/topology.py
 COPY entrypoint.sh /topo/entrypoint.sh
+COPY topologies /topo/topologies
+
 WORKDIR /topo
 
-# Đặt quyền thực thi cho entrypoint
-RUN chmod +x entrypoint.sh
+ENV PYTHONPATH="/topo:${PYTHONPATH}"
 
-# Khởi chạy entrypoint
-ENTRYPOINT ["./entrypoint.sh"]
+RUN chmod +x /topo/entrypoint.sh
+
+ENTRYPOINT ["/topo/entrypoint.sh"]

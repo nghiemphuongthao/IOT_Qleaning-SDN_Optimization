@@ -1,14 +1,50 @@
 #!/bin/bash
 set -e
 
-# Lấy mode và IP controller từ environment
-MODE=${TOPO_CASE:-standalone}
-CONTROLLER_IP=${CONTROLLER_IP:-ryu-controller}
+echo ">>> Starting Open vSwitch..."
 
-echo "*** Running topology.py (mode=$MODE, controller=$CONTROLLER_IP) ***"
+# Ensure dirs exist
+mkdir -p /var/run/openvswitch
+mkdir -p /var/log/openvswitch
+mkdir -p /etc/openvswitch
 
-# Start Open vSwitch daemons (cần cho standalone mode)
-service openvswitch-switch start || true
+# Create DB if missing
+if [ ! -f /etc/openvswitch/conf.db ]; then
+    echo ">>> Creating OVS DB"
+    ovsdb-tool create /etc/openvswitch/conf.db /usr/share/openvswitch/vswitch.ovsschema
+fi
 
-# Chạy topology
-python3 /topo/topology.py
+# Start ovsdb-server
+ovsdb-server --remote=punix:/var/run/openvswitch/db.sock \
+             --remote=db:Open_vSwitch,Open_vSwitch,manager_options \
+             --log-file=/var/log/openvswitch/ovsdb-server.log \
+             --pidfile --detach
+
+# Init DB
+ovs-vsctl --no-wait init
+
+# Start ovs-vswitchd
+ovs-vswitchd --log-file=/var/log/openvswitch/ovs-vswitchd.log \
+             --pidfile --detach
+
+echo ">>> OVS is running."
+
+echo "MODE = $MODE"
+
+# ========================
+# CASE 1: No controller
+# ========================
+if [ "$MODE" == "case1" ]; then
+    echo "[Mininet] Running CASE 1 – Static (NO CONTROLLER)"
+    python3 topology.py --mode case1
+    exit 0
+fi
+
+# ========================
+# CASE 2 & 3: require Ryu
+# ========================
+echo "[Mininet] CASE $MODE – requires Ryu controller"
+echo "Waiting for Ryu controller at ryu-controller:6633 ..."
+sleep 3
+
+python3 topology.py --mode "$MODE"

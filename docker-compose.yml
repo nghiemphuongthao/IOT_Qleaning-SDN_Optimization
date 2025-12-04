@@ -38,7 +38,7 @@ services:
     tty: true   
     restart: unless-stopped
     environment:
-      - TOPO_CASE=standalone # thay đổi sang ryu hoặc ryu_qlearning khi cần
+      - MODE=${MODE} 
       - CONTROLLER_IP= none
     networks:
       - sdn-net
