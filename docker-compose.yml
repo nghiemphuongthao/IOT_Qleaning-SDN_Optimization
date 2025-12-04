@@ -6,6 +6,7 @@ services:
       - sdn-net
     ports:
       - "6633:6633"   # OpenFlow
+      - "8080:8080"
       - "5556:5556"   # ZMQ PUB
       - "5557:5557"   # ZMQ REP
     volumes:
@@ -13,7 +14,7 @@ services:
     environment:
       - ZMQ_PUB_PORT=5556
       - ZMQ_REP_PORT=5557
-    restart: unless-stopped
+    restart: no
 
   qlearning-agent:
     build: ./qlearning-agent
@@ -38,16 +39,23 @@ services:
     tty: true   
     restart: unless-stopped
     environment:
-      - MODE=${MODE} 
-      - CONTROLLER_IP= none
+      - MODE=case2
+      - CONTROLLER_IP= ryu-controller
     networks:
       - sdn-net
+    cap_add:
+        - NET_ADMIN
+        - SYS_ADMIN
+        - NET_RAW
     depends_on:
       - ryu-controller
       - qlearning-agent
     volumes:
       - ./shared:/shared
       - mininet-ovsdb:/var/lib/openvswitch
+      - /lib/modules:/lib/modules
+      - ./topology:/topology
+
 
   traffic-generator:
     build: ./traffic-generator

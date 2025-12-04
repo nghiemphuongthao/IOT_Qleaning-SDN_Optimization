@@ -11,4 +11,13 @@ RUN pip install --no-cache-dir ryu pyzmq networkx
 
 WORKDIR /app
 COPY . /app
-CMD ["ryu-manager", "--observe-links", "ryu_app.py"]
+
+EXPOSE 6633 8080 5556 5557
+
+CMD ["ryu-manager",\
+     "--ofp-listen-host", "0.0.0.0",\
+     "--ofp-tcp-listen-port", "6633",\
+     "ryu.topology.switches",\
+     "/app/ryu_app.py"]
+
+

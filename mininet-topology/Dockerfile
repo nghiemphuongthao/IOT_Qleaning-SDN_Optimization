@@ -17,7 +17,7 @@ COPY topologies /topo/topologies
 
 WORKDIR /topo
 
-ENV PYTHONPATH="/topo:${PYTHONPATH}"
+ENV PYTHONPATH="/topo:/topo/topologies:${PYTHONPATH}"
 
 RUN chmod +x /topo/entrypoint.sh
 

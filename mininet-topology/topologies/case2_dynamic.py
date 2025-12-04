@@ -75,7 +75,7 @@ def run():
     switch_with_protocol = partial(OVSKernelSwitch, protocols='OpenFlow13')
     
     net = Mininet(topo=topo, controller=None, switch=switch_with_protocol, link=TCLink)
-    c0 = net.addController('c0', controller=RemoteController, ip='127.0.0.1', port=6633)
+    c0 = net.addController('c0', controller=RemoteController, ip="ryu-controller", port=6633)
 
     net.start()
 
