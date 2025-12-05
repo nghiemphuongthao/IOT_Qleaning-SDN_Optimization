@@ -14,7 +14,6 @@ services:
     environment:
       - ZMQ_PUB_PORT=5556
       - ZMQ_REP_PORT=5557
-    restart: no
 
   qlearning-agent:
     build: ./qlearning-agent
@@ -28,7 +27,7 @@ services:
     environment:
       - ZMQ_PUB_ADDR=tcp://ryu-controller:5556
       - ZMQ_REQ_ADDR=tcp://ryu-controller:5557
-    restart: on-failure
+    
 
   mininet-topology:
     build:
@@ -37,7 +36,6 @@ services:
     container_name: mininet-topology
     privileged: true
     tty: true   
-    restart: unless-stopped
     environment:
       - MODE=case2
       - CONTROLLER_IP= ryu-controller
@@ -66,7 +64,6 @@ services:
       - mininet-topology
     volumes:
       - ./shared:/shared
-    restart: unless-stopped
 
   analysis:
     build: ./analysis
@@ -75,7 +72,7 @@ services:
       - ./analysis:/app
     depends_on:
       - mininet-topology
-    restart: unless-stopped
+    
 
 
 volumes:
@@ -84,3 +81,37 @@ volumes:
 networks:
   sdn-net:
     driver: bridge
+
+# version: "3.8"
+# services:
+#   ryu-controller:
+#     build: ./ryu-controller
+#     container_name: ryu-controller
+#     hostname: ryu-controller
+#     networks:
+#       - sdn-net
+#     ports:
+#       - "6633:6633"   # optional for debug
+#       - "5556:5556"
+#       - "5557:5557"
+#     volumes:
+#       - ./shared:/shared
+#     environment:
+#       - ZMQ_PUB_PORT=5556
+#       - ZMQ_REP_PORT=5557
+
+
+#   mininet-topology:
+#     build: ./mininet-topology
+#     container_name: mininet-topology
+#     privileged: true
+#     networks:
+#       - sdn-net
+#     depends_on:
+#       - ryu-controller
+#     command: ["python3", "/topo/topology.py", "--mode", "case2"]
+    
+
+# networks:
+#   sdn-net:
+#     driver: bridge

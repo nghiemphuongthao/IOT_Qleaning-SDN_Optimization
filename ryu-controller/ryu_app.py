@@ -1,87 +1,120 @@
-# ryu_app.py
+import os
+import time
+import json
+import zmq
+import networkx as nx
 from ryu.base import app_manager
 from ryu.controller import ofp_event
-from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls
+from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
+from ryu.controller.handler import set_ev_cls
 from ryu.topology import event
-from ryu.topology.api import get_switch, get_link
+from ryu.topology.api import get_link, get_switch
 from ryu.ofproto import ofproto_v1_3
-from ryu.lib.packet import packet, ethernet
 from ryu.lib import hub
-import networkx as nx
-import zmq, json, time, os
 
-ZMQ_PUB_PORT = int(os.environ.get('ZMQ_PUB_PORT', 5556))
-ZMQ_REP_PORT = int(os.environ.get('ZMQ_REP_PORT', 5557))
+ZMQ_PUB_PORT = int(os.environ.get("ZMQ_PUB_PORT", 5556))
+ZMQ_REP_PORT = int(os.environ.get("ZMQ_REP_PORT", 5557))
 
 class RyuZMQ(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
     def __init__(self, *args, **kwargs):
         super(RyuZMQ, self).__init__(*args, **kwargs)
+
         self.net = nx.DiGraph()
         self.mac_table = {}
-        self.port_stats = {}    # {dpid: {port_no: tx_bytes}}
-        self.port_speed = {}    # {dpid: {port_no: bytes_delta}}
+        self.port_stats = {}
+        self.port_speed = {}
+        self.datapaths = {}
+
         # ZeroMQ
         self.context = zmq.Context()
         self.pub = self.context.socket(zmq.PUB)
         self.pub.bind(f"tcp://0.0.0.0:{ZMQ_PUB_PORT}")
+
         self.rep = self.context.socket(zmq.REP)
         self.rep.bind(f"tcp://0.0.0.0:{ZMQ_REP_PORT}")
-        # launch threads
-        hub.spawn(self._rep_loop)
-        hub.spawn(self._state_publisher)
-        hub.spawn(self._monitor_stats)
 
-    # Topology discovery
+        hub.spawn(self.rep_loop)
+        hub.spawn(self.publisher)
+        hub.spawn(self.monitor_stats)
+
+        self.logger.info("RyuZMQ loaded (PUB=%s, REP=%s)", ZMQ_PUB_PORT, ZMQ_REP_PORT)
+
+    # ----------------------------
+    # Topology
+    # ----------------------------
     @set_ev_cls(event.EventSwitchEnter)
-    def on_switch_enter(self, ev):
+    def handler_topology(self, ev):
         switches = get_switch(self, None)
         links = get_link(self, None)
+
         self.net.clear()
-        for s in switches:
-            self.net.add_node(s.dp.id)
+        for sw in switches:
+            self.net.add_node(sw.dp.id)
+
         for l in links:
             s1, p1 = l.src.dpid, l.src.port_no
             s2, p2 = l.dst.dpid, l.dst.port_no
+
             self.net.add_edge(s1, s2, port=p1, load=0)
             self.net.add_edge(s2, s1, port=p2, load=0)
-        self.logger.info(f"Topology nodes: {self.net.nodes()} edges: {self.net.edges(data=True)}")
 
-    # default table-miss
+        self.logger.info("Topo updated: %s", list(self.net.edges()))
+
+    # ----------------------------
+    # Switch Features
+    # ----------------------------
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
-    def switch_features_handler(self, ev):
+    def switch_features(self, ev):
         dp = ev.msg.datapath
-        ofp = dp.ofproto
         parser = dp.ofproto_parser
-        match = parser.OFPMatch()
-        actions = [parser.OFPActionOutput(ofp.OFPP_CONTROLLER, ofp.OFPCML_NO_BUFFER)]
-        inst = [parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS, actions)]
-        dp.send_msg(parser.OFPFlowMod(datapath=dp, priority=0, match=match, instructions=inst))
+        ofp = dp.ofproto
 
-    # packet in: simple learning + path calc
+        match = parser.OFPMatch()
+        actions = [parser.OFPActionOutput(ofp.OFPP_CONTROLLER,
+                                          ofp.OFPCML_NO_BUFFER)]
+        inst = [parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS, actions)]
+
+        dp.send_msg(parser.OFPFlowMod(
+            datapath=dp,
+            match=match,
+            priority=0,
+            instructions=inst
+        ))
+
+        self.datapaths[dp.id] = dp
+        self.logger.info("Registered datapath %s", dp.id)
+
+    # ----------------------------
+    # Packet In
+    # ----------------------------
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
-    def packet_in_handler(self, ev):
+    def packet_in(self, ev):
         msg = ev.msg
         dp = msg.datapath
-        dpid = dp.id
         parser = dp.ofproto_parser
         ofp = dp.ofproto
-        in_port = msg.match.get('in_port', None)
+        dpid = dp.id
+
+        in_port = msg.match['in_port']
+
+        from ryu.lib.packet import packet, ethernet
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocol(ethernet.ethernet)
-        if not eth:
-            return
+
         if eth.ethertype == 0x88cc:
             return
-        src = eth.src; dst = eth.dst
+
+        src = eth.src
+        dst = eth.dst
+
         self.mac_table.setdefault(dpid, {})
         self.mac_table[dpid][src] = in_port
 
-        # find dst location
         dst_sw = None
-        for sw in self.mac_table:
-            if dst in self.mac_table[sw]:
+        for sw, table in self.mac_table.items():
+            if dst in table:
                 dst_sw = sw
                 break
 
@@ -92,123 +125,149 @@ class RyuZMQ(app_manager.RyuApp):
                 out_port = self.mac_table[dpid][dst]
             else:
                 try:
-                    path = nx.shortest_path(self.net, dpid, dst_sw, weight='load')
+                    path = nx.shortest_path(self.net, dpid, dst_sw, weight="load")
                     next_hop = path[1]
                     out_port = self.net[dpid][next_hop]['port']
-                except Exception:
+                except:
                     out_port = ofp.OFPP_FLOOD
 
         actions = [parser.OFPActionOutput(out_port)]
-        match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
-        dp.send_msg(parser.OFPFlowMod(datapath=dp, match=match, priority=1,
-                                     instructions=[parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS, actions)]))
-        data = None
-        if msg.buffer_id == ofp.OFP_NO_BUFFER:
-            data = msg.data
-        dp.send_msg(parser.OFPPacketOut(datapath=dp, buffer_id=msg.buffer_id,
-                                       in_port=in_port, actions=actions, data=data))
 
-    # request port stats
-    def _monitor_stats(self):
+        dp.send_msg(parser.OFPFlowMod(
+            datapath=dp,
+            match=parser.OFPMatch(eth_dst=dst),
+            priority=1,
+            instructions=[
+                parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS, actions)
+            ]
+        ))
+
+        data = None if msg.buffer_id != ofp.OFP_NO_BUFFER else msg.data
+        dp.send_msg(parser.OFPPacketOut(
+            datapath=dp,
+            buffer_id=msg.buffer_id,
+            in_port=in_port,
+            actions=actions,
+            data=data
+        ))
+
+    # ----------------------------
+    # Stats monitor
+    # ----------------------------
+    def monitor_stats(self):
         while True:
-            for s in list(self.net.nodes()):
-                # get datapath object
-                # using get_switch to get the DP objects might be needed; simpler: send request to known datapaths
-                pass
-            # hub.sleep small; actual port stats handled by OFPPortStatsReply handler when replies come
-            hub.sleep(1.0)
+            for dp in list(self.datapaths.values()):
+                parser = dp.ofproto_parser
+                req = parser.OFPPortStatsRequest(dp, 0, dp.ofproto.OFPP_ANY)
+                dp.send_msg(req)
+            hub.sleep(1)
 
-    # handle port stats replies (useful if port stats have been requested)
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
-    def _port_stats_handler(self, ev):
+    def port_stats(self, ev):
         dp = ev.msg.datapath
         dpid = dp.id
         body = ev.msg.body
-        if dpid not in self.port_stats:
-            self.port_stats[dpid] = {}
-            self.port_speed[dpid] = {}
+
+        self.port_stats.setdefault(dpid, {})
+        self.port_speed.setdefault(dpid, {})
+
         for stat in body:
             port_no = stat.port_no
             tx = stat.tx_bytes
+
             prev = self.port_stats[dpid].get(port_no, tx)
             speed = max(tx - prev, 0)
+
             self.port_stats[dpid][port_no] = tx
             self.port_speed[dpid][port_no] = speed
-        # update net loads (match by port)
-        for u, v, data in self.net.edges(data=True):
-            port = data.get('port')
-            if port is not None:
-                data['load'] = self.port_speed.get(u, {}).get(port, 0)
 
-    # ZeroMQ REP loop: receive actions
-    def _rep_loop(self):
+        for u, v in self.net.edges():
+            p = self.net[u][v]['port']
+            self.net[u][v]['load'] = self.port_speed.get(u, {}).get(p, 0)
+
+    # ----------------------------
+    # ZMQ REP – receive actions
+    # ----------------------------
+    def rep_loop(self):
+        poller = zmq.Poller()
+        poller.register(self.rep, zmq.POLLIN)
+
         while True:
-            try:
-                msg = self.rep.recv_json()
-                # Expect action: {"type":"action","flow": {...}}
-                if msg.get('type') == 'action':
-                    flow = msg.get('flow', {})
-                    ok, info = self._install_flow_from_action(flow)
-                    if ok:
-                        self.rep.send_json({"status":"ok", "msg": info})
-                    else:
-                        self.rep.send_json({"status":"error", "msg": info})
-                else:
-                    self.rep.send_json({"status":"error", "msg":"unknown message type"})
-            except Exception as e:
+            events = dict(poller.poll(timeout=100))
+            if self.rep in events:
                 try:
-                    self.rep.send_json({"status":"error", "msg": str(e)})
+                    msg = self.rep.recv_json()
+                    if msg.get("type") == "action":
+                        ok, info = self.install_action(msg["flow"])
+                        self.rep.send_json({"status": ok, "msg": info})
+                    else:
+                        self.rep.send_json({"status": False, "msg": "unknown"})
                 except:
-                    pass
+                    self.rep.send_json({"status": False, "msg": "error"})
+            hub.sleep(0.01)
 
-    # apply flow described as path or as (dpid,out_port)
-    def _install_flow_from_action(self, flow):
+    # ----------------------------
+    # Install flow from ML action
+    # ----------------------------
+    def install_action(self, flow):
         try:
-            path = flow.get('path')  # list of dpids
-            priority = int(flow.get('priority', 10))
-            timeout = int(flow.get('timeout', 60))
-            src_ip = flow.get('src_ip')
-            dst_ip = flow.get('dst_ip')
-            if not path or len(path) < 2:
-                return False, "invalid path"
-            # install flows along path
+            path = flow["path"]
+            src_ip = flow["src_ip"]
+            dst_ip = flow["dst_ip"]
+            priority = flow.get("priority", 10)
+
             for i in range(len(path)-1):
-                u = path[i]; v = path[i+1]
-                port = self.net[u][v]['port']
-                dp = None
-                # find datapath with id==u
-                for sw in get_switch(self, None):
-                    if sw.dp.id == u:
-                        dp = sw.dp; break
-                if dp is None:
+                u, v = path[i], path[i+1]
+                if not self.net.has_edge(u, v):
                     continue
+
+                port = self.net[u][v]["port"]
+
+                dp = self.datapaths.get(u)
+                if not dp:
+                    continue
+
                 parser = dp.ofproto_parser
                 ofp = dp.ofproto
-                match = parser.OFPMatch(eth_type=0x0800, ipv4_src=src_ip, ipv4_dst=dst_ip)
-                actions = [parser.OFPActionOutput(int(port))]
-                dp.send_msg(parser.OFPFlowMod(datapath=dp, priority=priority,
-                                             match=match, instructions=[parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS, actions)],
-                                             hard_timeout=timeout))
-            return True, "flows installed"
+
+                match = parser.OFPMatch(
+                    eth_type=0x0800,
+                    ipv4_src=src_ip,
+                    ipv4_dst=dst_ip
+                )
+                actions = [parser.OFPActionOutput(port)]
+
+                dp.send_msg(parser.OFPFlowMod(
+                    datapath=dp,
+                    priority=priority,
+                    match=match,
+                    instructions=[
+                        parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS, actions)
+                    ],
+                    hard_timeout=60
+                ))
+
+            return True, "Flow installed"
         except Exception as e:
             return False, str(e)
 
-    # state publisher: publish simple state periodically
-    def _state_publisher(self):
+    # ----------------------------
+    # Publisher – send state to Agent
+    # ----------------------------
+    def publisher(self):
         while True:
+            state = {
+                "type": "state",
+                "timestamp": time.time(),
+                "switches": list(self.net.nodes()),
+                "links": [
+                    dict(u=u, v=v, port=self.net[u][v]["port"], load=self.net[u][v]["load"])
+                    for u, v in self.net.edges()
+                ],
+                "mac_table": self.mac_table
+            }
             try:
-                state = {
-                    "type": "state",
-                    "timestamp": time.time(),
-                    "switches": list(self.net.nodes()),
-                    "links": []
-                }
-                for u, v, data in self.net.edges(data=True):
-                    state["links"].append({
-                        "u": u, "v": v, "port_u": data.get('port'), "load": data.get('load', 0)
-                    })
-                state["mac_table"] = self.mac_table
-                self.pub.send_json(state)
-            except Exception as e:
-                self.logger.error(f"Publish error: {e}")
-            hub.sleep(1.0)
+                self.pub.send_json(state, flags=zmq.NOBLOCK)
+            except:
+                pass
+            hub.sleep(1)
