@@ -1,7 +1,22 @@
-import time, os, subprocess
-# Simple script: start iperf3 server on cloud host inside Mininet via docker exec
-# For demo purpose, we just loop and print. In practice call mininet hX iperf3 commands via docker exec.
+import os
+import time
 
-while True:
-    print("Traffic generator placeholder: create traffic flows in Mininet")
-    time.sleep(10)
+def run(cmd):
+    print(f"[RUN] {cmd}")
+    os.system(cmd)
+
+print("Starting demo IoT traffic...")
+
+# chạy trực tiếp mnexec trong mininet container
+run("mnexec -a cloud iperf3 -s -p 5001 -D")
+run("mnexec -a cloud iperf3 -s -p 5002 -D")
+
+time.sleep(1)
+
+# UDP flood từ h1
+run("mnexec -a h1 iperf3 -u -c 10.0.0.254 -b 60M -t 90 -p 5001")
+
+# TCP từ h2
+run("mnexec -a h2 iperf3 -c 10.0.0.254 -t 90 -p 5002")
+
+print("Traffic finished.")

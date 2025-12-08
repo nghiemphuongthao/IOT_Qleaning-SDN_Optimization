@@ -1,4 +1,7 @@
+version: "3.9"
+
 services:
+
   ryu-controller:
     build: ./ryu-controller
     container_name: ryu-controller
@@ -6,8 +9,6 @@ services:
       - sdn-net
     ports:
       - "6653:6653"
-      - "6633:6633"
-      - "8080:8080"
       - "5556:5556"
       - "5557:5557"
     volumes:
@@ -37,31 +38,21 @@ services:
     privileged: true
     tty: true
     stdin_open: true
-    environment:
-      - MODE=case2
-      - CONTROLLER_IP=ryu-controller
-      - RYU_OFP_PORT=6653
     networks:
       - sdn-net
-    cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-      - NET_RAW
-      - SYS_MODULE
-    depends_on:
-      - ryu-controller
-      - qlearning-agent
+    environment:
+      - CONTROLLER_IP=ryu-controller
+      - RYU_OFP_PORT=6653
+      - MODE=case3
     volumes:
       - ./shared:/shared
-      - mininet-ovsdb:/var/lib/openvswitch
       - /lib/modules:/lib/modules
-      - ./topology:/topology
+      - mininet-ovsdb:/var/lib/openvswitch
 
   traffic-generator:
     build: ./traffic-generator
     container_name: traffic-generator
-    networks:
-      - sdn-net
+    network_mode: service:mininet-topology
     depends_on:
       - mininet-topology
     volumes:
@@ -83,39 +74,3 @@ volumes:
 networks:
   sdn-net:
     driver: bridge
-
-
-# # version: "3.8"
-# # services:
-# #   ryu-controller:
-# #     build: ./ryu-controller
-# #     container_name: ryu-controller
-# #     hostname: ryu-controller
-# #     networks:
-# #       - sdn-net
-# #     ports:
-# #       - "6633:6633"   # optional for debug
-# #       - "5556:5556"
-# #       - "5557:5557"
-# #     volumes:
-# #       - ./shared:/shared
-# #     environment:
-# #       - ZMQ_PUB_PORT=5556
-# #       - ZMQ_REP_PORT=5557
-
-
-# #   mininet-topology:
-# #     build: ./mininet-topology
-# #     container_name: mininet-topology
-# #     privileged: true
-# #     networks:
-# #       - sdn-net
-# #     depends_on:
-# #       - ryu-controller
-# #     command: ["python3", "/topo/topology.py", "--mode", "case2"]
-    
-
-# # networks:
-# #   sdn-net:
-# #     driver: bridge
-

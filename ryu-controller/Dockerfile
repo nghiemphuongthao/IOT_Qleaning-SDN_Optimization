@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 COPY . /app
 
-RUN pip install --no-cache-dir ryu==4.34 pyzmq networkx eventlet==0.30.2
+RUN pip install --no-cache-dir ryu==4.34 pyzmq networkx eventlet==0.30.2 numpy
 
 # expose OF port and ZMQ ports
 EXPOSE 6633 5556 5557
