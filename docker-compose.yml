@@ -5,10 +5,11 @@ services:
     networks:
       - sdn-net
     ports:
-      - "6633:6633"   # OpenFlow
+      - "6653:6653"
+      - "6633:6633"
       - "8080:8080"
-      - "5556:5556"   # ZMQ PUB
-      - "5557:5557"   # ZMQ REP
+      - "5556:5556"
+      - "5557:5557"
     volumes:
       - ./shared:/shared
     environment:
@@ -27,7 +28,6 @@ services:
     environment:
       - ZMQ_PUB_ADDR=tcp://ryu-controller:5556
       - ZMQ_REQ_ADDR=tcp://ryu-controller:5557
-    
 
   mininet-topology:
     build:
@@ -35,16 +35,19 @@ services:
       dockerfile: Dockerfile
     container_name: mininet-topology
     privileged: true
-    tty: true   
+    tty: true
+    stdin_open: true
     environment:
       - MODE=case2
-      - CONTROLLER_IP= ryu-controller
+      - CONTROLLER_IP=ryu-controller
+      - RYU_OFP_PORT=6653
     networks:
       - sdn-net
     cap_add:
-        - NET_ADMIN
-        - SYS_ADMIN
-        - NET_RAW
+      - NET_ADMIN
+      - SYS_ADMIN
+      - NET_RAW
+      - SYS_MODULE
     depends_on:
       - ryu-controller
       - qlearning-agent
@@ -53,7 +56,6 @@ services:
       - mininet-ovsdb:/var/lib/openvswitch
       - /lib/modules:/lib/modules
       - ./topology:/topology
-
 
   traffic-generator:
     build: ./traffic-generator
@@ -68,12 +70,12 @@ services:
   analysis:
     build: ./analysis
     container_name: analysis
+    networks:
+      - sdn-net
     volumes:
       - ./analysis:/app
     depends_on:
       - mininet-topology
-    
-
 
 volumes:
   mininet-ovsdb:
@@ -82,36 +84,38 @@ networks:
   sdn-net:
     driver: bridge
 
-# version: "3.8"
-# services:
-#   ryu-controller:
-#     build: ./ryu-controller
-#     container_name: ryu-controller
-#     hostname: ryu-controller
-#     networks:
-#       - sdn-net
-#     ports:
-#       - "6633:6633"   # optional for debug
-#       - "5556:5556"
-#       - "5557:5557"
-#     volumes:
-#       - ./shared:/shared
-#     environment:
-#       - ZMQ_PUB_PORT=5556
-#       - ZMQ_REP_PORT=5557
+
+# # version: "3.8"
+# # services:
+# #   ryu-controller:
+# #     build: ./ryu-controller
+# #     container_name: ryu-controller
+# #     hostname: ryu-controller
+# #     networks:
+# #       - sdn-net
+# #     ports:
+# #       - "6633:6633"   # optional for debug
+# #       - "5556:5556"
+# #       - "5557:5557"
+# #     volumes:
+# #       - ./shared:/shared
+# #     environment:
+# #       - ZMQ_PUB_PORT=5556
+# #       - ZMQ_REP_PORT=5557
 
 
-#   mininet-topology:
-#     build: ./mininet-topology
-#     container_name: mininet-topology
-#     privileged: true
-#     networks:
-#       - sdn-net
-#     depends_on:
-#       - ryu-controller
-#     command: ["python3", "/topo/topology.py", "--mode", "case2"]
+# #   mininet-topology:
+# #     build: ./mininet-topology
+# #     container_name: mininet-topology
+# #     privileged: true
+# #     networks:
+# #       - sdn-net
+# #     depends_on:
+# #       - ryu-controller
+# #     command: ["python3", "/topo/topology.py", "--mode", "case2"]
     
 
-# networks:
-#   sdn-net:
-#     driver: bridge
+# # networks:
+# #   sdn-net:
+# #     driver: bridge
+

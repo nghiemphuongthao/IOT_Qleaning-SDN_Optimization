@@ -8,123 +8,106 @@ from mininet.link import TCLink
 from mininet.cli import CLI
 from mininet.log import setLogLevel, info
 
-class SDNIoTTreeTopo(Topo):
+os.system("mn -c")
+
+# ==========================================
+# 1. CLASS TOPOLOGY: MẠNG IOT - SDN (SINGLE NETWORK)
+# ==========================================
+class SDNIoTFlatTopo(Topo):
     def build(self):
+        # --- SWITCHES (SDN) ---
         g1 = self.addSwitch("g1", dpid="0000000000000100")
         g2 = self.addSwitch("g2", dpid="0000000000000200")
         g3 = self.addSwitch("g3", dpid="0000000000000300")
-
-        # 2. Cloud server
-        cloud = self.addHost("cloud", ip="10.0.100.2/24", defaultRoute="via 10.0.100.1")
-
-        # 3. Switches
         s1 = self.addSwitch("s1", dpid="0000000000000001")
         s2 = self.addSwitch("s2", dpid="0000000000000002")
         s3 = self.addSwitch("s3", dpid="0000000000000003")
         s4 = self.addSwitch("s4", dpid="0000000000000004")
 
-        bw_router = 10
-        bw_host = 10
+        cloud = self.addHost("cloud", ip="10.0.0.254/24")
+      
+        bw_backbone = 50   
+        bw_uplink = 1.5    
+        bw_access = 10     
 
         # --- LINKS ---
 
-        # G1 <-> Cloud
-        self.addLink(g1, cloud, intfName1="g1-eth0", intfName2="cloud-eth0", 
-                     bw=1, max_queue_size=10)
+        self.addLink(g1, cloud, intfName1="g1-eth100", intfName2="cloud-eth0", 
+                     bw=bw_uplink, max_queue_size=100)  
+        self.addLink(g3, cloud, intfName1="g3-eth100", intfName2="cloud-eth1", 
+                     bw=bw_backbone)
+        self.addLink(g1, g2, bw=bw_backbone) 
+        self.addLink(g1, g3, bw=bw_backbone) 
+        self.addLink(g1, s1, bw=bw_access)
+        self.addLink(g1, s2, bw=bw_access)
+        self.addLink(g2, s3, bw=bw_access)
+        self.addLink(g3, s4, bw=bw_access)
 
-        # G3 <-> Cloud 
-        self.addLink(g3, cloud, intfName1="g3-eth2", intfName2="cloud-eth1", bw=10)
-
-        # G1 <-> S1
-        self.addLink(g1, s1, intfName1="g1-eth1", bw=bw_router)
-        # G1 <-> S2
-        self.addLink(g1, s2, intfName1="g1-eth2", bw=bw_router)
-
-        # G1 <-> G2 
-        self.addLink(g1, g2, intfName1="g1-eth3", intfName2="g2-eth0", bw=50)
-
-        # G1 <-> G3 
-        self.addLink(g1, g3, intfName1="g1-eth4", intfName2="g3-eth0", bw=50)
-
-        # G2 <-> S3
-        self.addLink(g2, s3, intfName1="g2-eth1", bw=bw_router)
-
-        # G3 <-> S4
-        self.addLink(g3, s4, intfName1="g3-eth1", bw=bw_router)
-
-        # --- HOSTS ---
+        # --- HOSTS (SENSORS) ---
+        # Zone 1 -> S1
         for i in range(1, 4): 
-            self.addHost(f"h{i}", ip=f"10.0.1.{i}/24", defaultRoute="via 10.0.1.254")
-            self.addLink(s1, f"h{i}", bw=bw_host)
-        
+            self.addHost(f"h{i}", ip=f"10.0.0.{i}/24")
+            self.addLink(s1, f"h{i}", bw=bw_access)   
+        # Zone 2 -> S2
         for i in range(4, 6): 
-            self.addHost(f"h{i}", ip=f"10.0.2.{i}/24", defaultRoute="via 10.0.2.254")
-            self.addLink(s2, f"h{i}", bw=bw_host)
-
+            self.addHost(f"h{i}", ip=f"10.0.0.{i}/24")
+            self.addLink(s2, f"h{i}", bw=bw_access)
+        # Zone 3 -> S3
         for i in range(6, 8): 
-            self.addHost(f"h{i}", ip=f"10.0.3.{i}/24", defaultRoute="via 10.0.3.254")
-            self.addLink(s3, f"h{i}", bw=bw_host)
-
+            self.addHost(f"h{i}", ip=f"10.0.0.{i}/24")
+            self.addLink(s3, f"h{i}", bw=bw_access)
+        # Zone 4 -> S4
         for i in range(8, 11): 
-            self.addHost(f"h{i}", ip=f"10.0.4.{i}/24", defaultRoute="via 10.0.4.254")
-            self.addLink(s4, f"h{i}", bw=bw_host)
-
+            self.addHost(f"h{i}", ip=f"10.0.0.{i}/24")
+            self.addLink(s4, f"h{i}", bw=bw_access)
+# ==========================================
+# 2. MAIN FUNCTION
+# ==========================================
 def run():
-    topo = SDNIoTTreeTopo()
-    
-    switch_with_protocol = partial(OVSKernelSwitch, protocols='OpenFlow13')
-    
-    net = Mininet(topo=topo, controller=None, switch=switch_with_protocol, link=TCLink)
-    c0 = net.addController('c0', controller=RemoteController, ip="ryu-controller", port=6633)
+    topo = SDNIoTFlatTopo()
+    switch_with_protocol = partial(OVSKernelSwitch, protocols='OpenFlow13')   
+    net = Mininet(topo=topo, 
+                  controller=None, 
+                  switch=switch_with_protocol, 
+                  link=TCLink)
+     
+    info("[*] Connecting to Remote Controller...\n")
+    c0 = net.addController('c0', controller=RemoteController, ip='ryu-controller', port=6653)
 
     net.start()
-
-    cloud = net.get('cloud')
-    cloud.cmd("ip addr add 10.0.200.2/24 dev cloud-eth1")
-    cloud.cmd("ip link set cloud-eth1 up")
-
-    info("\n=== SDN NETWORK STARTED ===\n")
-    info("Waiting for controller...\n")
-    time.sleep(3)
-
-    cloud.cmd("ping -c 1 10.0.100.1")
-    cloud.cmd("ping -c 1 10.0.200.1")
-
-    # # --- START IOT SERVICES ---
-    # info("\n=== STARTING IOT SIMULATION (CASE 2) ===\n")
-    # cloud.cmd("PYTHONIOENCODING=utf-8 python3 iot_server.py > server.log 2>&1 &")
-    # cloud.cmd("iperf -s -u -p 5001 &") 
+    net.pingAll()
+    # info("\n=== SDN IOT NETWORK STARTED (FLAT IP: 10.0.0.x/24) ===\n")
     # time.sleep(2) 
 
-    # sensors = {
-    #     'h1': 'temp', 'h2': 'humid', 'h3': 'motion', 
-    #     'h4': 'temp', 'h5': 'motion',                
-    #     'h6': 'humid', 'h7': 'temp',                 
-    #     'h8': 'motion', 'h9': 'temp', 'h10': 'humid' 
-    # }
 
-    # info("[*] Starting Sensors...\n")
-    # for hostname, stype in sensors.items():
-    #     h = net.get(hostname)
-    #     h.cmd(f"python3 iot_sensor.py {hostname} {stype} &")
-    #     info(f" -> {hostname} started ({stype})\n")
-        
+    # cloud = net.get('cloud')
+    # cloud.cmd("ip addr add 10.0.0.253/24 dev cloud-eth1") 
+    # cloud.cmd("ip link set cloud-eth1 up")
+    # info("[*] Starting Background Services...\n")
+    # cloud.cmd("PYTHONIOENCODING=utf-8 python3 iot_server.py > server.log 2>&1 &")
+    # cloud.cmd("iperf -s -u -p 5001 &") 
+    
+
+    # sensors = {'h2': 'temp', 'h3': 'motion', 'h4': 'humid'}
+    # for h, t in sensors.items():
+    #     node = net.get(h)
+
+    #     node.cmd(f"python3 iot_sensor.py {h} {t} &")
+    #     info(f" -> {h} started sending {t}\n")
+
     # info("\n------------------------------------------------\n")
-    # info("Simulation Running!\n")
-    # info("1. Web Dashboard: http://10.0.100.2\n")
-    # info("   (M? xterm cloud -> firefox 10.0.100.2)\n")
-    # info("2. View logs: tail -f server.log\n")
+    # info("Network Ready!\n")
+    # info("Cloud Main IP: 10.0.0.254 (via G1)\n")
+    # info("Cloud Backup IP: 10.0.0.253 (via G3)\n")
+    # info("All Hosts: 10.0.0.1 -> 10.0.0.10\n")
     # info("------------------------------------------------\n")
 
-    # info("\nRunning... CLI ready.\n")
-    # CLI(net)
+    CLI(net)
     
+    # info("[*] Stopping network...\n")
     # os.system("pkill -f iot_server.py")
     # os.system("pkill -f iot_sensor.py")
     # os.system("pkill -f iperf")
-    # net.stop()
-    net.pingAll()
-    CLI(net)
     net.stop()
 
 if __name__ == "__main__":
