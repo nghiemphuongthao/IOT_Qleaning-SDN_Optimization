@@ -14,6 +14,7 @@ RUN apt-get update && \
 COPY topology.py /topo/topology.py
 COPY entrypoint.sh /topo/entrypoint.sh
 COPY topologies /topo/topologies
+COPY traffic-generator /traffic-generator
 
 WORKDIR /topo
 

@@ -48,3 +48,6 @@ echo "Waiting for Ryu controller at ryu-controller:6633 ..."
 sleep 3
 
 python3 topology.py --mode "$MODE"
+
+
+

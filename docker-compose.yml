@@ -1,75 +1,42 @@
-version: "3.9"
-
 services:
-
   ryu-controller:
     build: ./ryu-controller
     container_name: ryu-controller
-    networks:
-      - sdn-net
+    command: ryu-manager ryu_app.py
     ports:
-      - "6653:6653"
+      - "6633:6633"
       - "5556:5556"
       - "5557:5557"
-    volumes:
-      - ./shared:/shared
-    environment:
-      - ZMQ_PUB_PORT=5556
-      - ZMQ_REP_PORT=5557
+    networks:
+      - sdn-net
 
   qlearning-agent:
     build: ./qlearning-agent
     container_name: qlearning-agent
-    networks:
-      - sdn-net
     depends_on:
       - ryu-controller
-    volumes:
-      - ./shared:/shared
-    environment:
-      - ZMQ_PUB_ADDR=tcp://ryu-controller:5556
-      - ZMQ_REQ_ADDR=tcp://ryu-controller:5557
+    networks:
+      - sdn-net
 
   mininet-topology:
-    build:
-      context: ./mininet-topology
-      dockerfile: Dockerfile
+    build: ./mininet-topology
     container_name: mininet-topology
     privileged: true
+    depends_on:
+      - ryu-controller       # <-- chỉ phụ thuộc 1 chiều
+    environment:
+      - MODE=case3
+    networks:
+      - sdn-net
     tty: true
     stdin_open: true
-    networks:
-      - sdn-net
-    environment:
-      - CONTROLLER_IP=ryu-controller
-      - RYU_OFP_PORT=6653
-      - MODE=case3
     volumes:
-      - ./shared:/shared
-      - /lib/modules:/lib/modules
-      - mininet-ovsdb:/var/lib/openvswitch
-
-  traffic-generator:
-    build: ./traffic-generator
-    container_name: traffic-generator
-    network_mode: service:mininet-topology
-    depends_on:
-      - mininet-topology
-    volumes:
-      - ./shared:/shared
-
-  analysis:
-    build: ./analysis
-    container_name: analysis
-    networks:
-      - sdn-net
-    volumes:
-      - ./analysis:/app
-    depends_on:
-      - mininet-topology
-
-volumes:
-  mininet-ovsdb:
+      - ./mininet-topology/traffic-generator:/traffic-generator  # <─ traffic nằm trong container
+    command: >
+      bash -c "
+      service openvswitch-switch start &&
+      python3 topology.py
+      "
 
 networks:
   sdn-net:
