@@ -1,121 +1,72 @@
-import http.server
-import socketserver
-import json
-import time
+import argparse, socket, threading, time, csv, os
 
-PORT = 80
-DATA_STORE = []
+CRIT_UDP = int(os.environ.get("CRIT_UDP", "5001"))
+TEL_UDP  = int(os.environ.get("TEL_UDP", "5002"))
+BULK_TCP = int(os.environ.get("BULK_TCP", "5003"))
 
-class IoTRequestHandler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html; charset=utf-8')
-            self.end_headers()
-            
-            # Giao diện Dashboard (HTML + CSS + JS)
-            html = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>IoT System Dashboard</title>
-                <style>
-                    body { font-family: sans-serif; background: #f4f6f9; padding: 20px; }
-                    .header { background: #343a40; color: white; padding: 15px; text-align: center; border-radius: 5px; }
-                    .container { display: flex; flex-wrap: wrap; justify-content: center; margin-top: 20px; }
-                    .card { background: white; width: 300px; margin: 10px; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-                    .card h3 { margin-top: 0; color: #007bff; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-                    .value { font-size: 2em; font-weight: bold; color: #28a745; text-align: center; }
-                    .alert { color: #dc3545; animation: blink 1s infinite; }
-                    @keyframes blink { 50% { opacity: 0.5; } }
-                    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; }
-                    th, td { padding: 8px; border-bottom: 1px solid #ddd; text-align: left; }
-                </style>
-                <script>
-                    function fetchData() {
-                        fetch('/api/data')
-                            .then(response => response.json())
-                            .then(data => {
-                                updateTable(data);
-                                updateStats(data);
-                            });
-                    }
-                    
-                    function updateTable(data) {
-                        let rows = "";
-                        // Lấy 10 bản ghi mới nhất
-                        data.slice().reverse().slice(0, 10).forEach(item => {
-                            let status = item.alert ? "<b style='color:red'>WARNING</b>" : "<span style='color:green'>OK</span>";
-                            rows += `<tr><td>${item.time}</td><td>${item.id}</td><td>${item.type}</td><td>${item.value}</td><td>${status}</td></tr>`;
-                        });
-                        document.getElementById("log-table").innerHTML = rows;
-                    }
-
-                    function updateStats(data) {
-                        document.getElementById("total-packets").innerText = data.length;
-                    }
-
-                    setInterval(fetchData, 2000); // Tự động cập nhật mỗi 2 giây
-                </script>
-            </head>
-            <body onload="fetchData()">
-                <div class="header">
-                    <h1>☁️ IoT Cloud Monitor Center</h1>
-                </div>
-                
-                <div class="container">
-                    <div class="card">
-                        <h3>System Status</h3>
-                        <p>Total Packets Received: <span id="total-packets" class="value">0</span></p>
-                        <p>Server IP: <b>10.0.100.2</b></p>
-                    </div>
-                    <div class="card" style="width: 600px">
-                        <h3>📋 Live Data Log</h3>
-                        <table>
-                            <thead><tr><th>Time</th><th>Device</th><th>Type</th><th>Value</th><th>Status</th></tr></thead>
-                            <tbody id="log-table"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """
-            self.wfile.write(html.encode('utf-8'))
-            
-        elif self.path == '/api/data':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(DATA_STORE).encode('utf-8'))
-            
-        else:
-            self.send_error(404)
-
-    def do_POST(self):
+def udp_echo_server(port, label, counters):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.bind(("0.0.0.0", port))
+    while True:
+        data, addr = s.recvfrom(2048)
+        counters[label]["rx"] += 1
         try:
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            # Xử lý dữ liệu
-            data['time'] = time.strftime("%H:%M:%S")
-            data['alert'] = False
-            
-            # Logic phân tích đơn giản
-            if data['type'] == 'temp' and float(data['value']) > 80:
-                data['alert'] = True # Cảnh báo cháy
-            if data['type'] == 'motion' and int(data['value']) == 1:
-                data['alert'] = True # Cảnh báo đột nhập
+            s.sendto(data, addr)
+            counters[label]["tx"] += 1
+        except Exception:
+            pass
 
-            DATA_STORE.append(data)
-            
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-        except:
-            self.send_response(400)
-            self.end_headers()
+def tcp_sink_server(port, counters):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("0.0.0.0", port))
+    s.listen(64)
+    while True:
+        conn, _ = s.accept()
+        conn.settimeout(1.0)
+        counters["bulk"]["conn"] += 1
+        try:
+            while True:
+                data = conn.recv(65536)
+                if not data:
+                    break
+                counters["bulk"]["bytes"] += len(data)
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
-print(f"Cloud Server started at 10.0.100.2:{PORT}")
-httpd = socketserver.TCPServer(("", PORT), IoTRequestHandler)
-httpd.serve_forever()
+def writer(out_path, counters):
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["ts","class","rx_pkts","tx_pkts","bulk_conns","bulk_bytes"])
+        while True:
+            ts = time.time()
+            w.writerow([ts,"critical",counters["critical"]["rx"],counters["critical"]["tx"],"", ""])
+            w.writerow([ts,"telemetry",counters["telemetry"]["rx"],counters["telemetry"]["tx"],"", ""])
+            w.writerow([ts,"bulk","", "", counters["bulk"]["conn"], counters["bulk"]["bytes"]])
+            f.flush()
+            time.sleep(1)
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--bind", default="0.0.0.0")
+    ap.add_argument("--out", required=True)
+    args = ap.parse_args()
+
+    counters = {
+        "critical": {"rx":0,"tx":0},
+        "telemetry": {"rx":0,"tx":0},
+        "bulk": {"conn":0,"bytes":0},
+    }
+
+    threading.Thread(target=udp_echo_server, args=(CRIT_UDP,"critical",counters), daemon=True).start()
+    threading.Thread(target=udp_echo_server, args=(TEL_UDP,"telemetry",counters), daemon=True).start()
+    threading.Thread(target=tcp_sink_server, args=(BULK_TCP,counters), daemon=True).start()
+    writer(args.out, counters)
+
+if __name__ == "__main__":
+    main()

@@ -10,16 +10,19 @@ RUN apt-get update && \
         python3-pip && \
     rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && apt-get install -y netcat-openbsd
+
+
 # Copy file topo + entrypoint
-COPY topology.py /topo/topology.py
-COPY entrypoint.sh /topo/entrypoint.sh
-COPY topologies /topo/topologies
-COPY traffic-generator /traffic-generator
+COPY topology.py /app/topology.py
+COPY entrypoint.sh /app/entrypoint.sh
+COPY topologies /app/topologies
+COPY traffic-generator /app/traffic-generator
 
-WORKDIR /topo
+WORKDIR /app
 
-ENV PYTHONPATH="/topo:/topo/topologies:${PYTHONPATH}"
+ENV PYTHONPATH="/app:/app/topologies:${PYTHONPATH}"
 
-RUN chmod +x /topo/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-ENTRYPOINT ["/topo/entrypoint.sh"]
+ENTRYPOINT ["/app/entrypoint.sh"]

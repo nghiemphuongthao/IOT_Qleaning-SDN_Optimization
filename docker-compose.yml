@@ -1,43 +1,39 @@
 services:
-  ryu-controller:
-    build: ./ryu-controller
-    container_name: ryu-controller
-    command: ryu-manager ryu_app.py
-    ports:
-      - "6633:6633"
-      - "5556:5556"
-      - "5557:5557"
-    networks:
-      - sdn-net
-
-  qlearning-agent:
-    build: ./qlearning-agent
-    container_name: qlearning-agent
-    depends_on:
-      - ryu-controller
-    networks:
-      - sdn-net
 
   mininet-topology:
     build: ./mininet-topology
-    container_name: mininet-topology
-    privileged: true
-    depends_on:
-      - ryu-controller       # <-- chỉ phụ thuộc 1 chiều
     environment:
-      - MODE=case3
-    networks:
-      - sdn-net
-    tty: true
-    stdin_open: true
+      - CASE=${CASE}
+      - MODE=${MODE}
     volumes:
-      - ./mininet-topology/traffic-generator:/traffic-generator  # <─ traffic nằm trong container
+      - ./shared:/shared
+    depends_on:
+      - ryu-controller
+
+  ryu-controller:
+    build: ./ryu-controller
+    environment:
+      - CASE=${CASE}
+    ports:
+      - "6653:6653"
+      - "5556:5556"
+      - "5557:5557"
+
+  qlearning-agent:
+    build: ./qlearning-agent
+    environment:
+      - CASE=${CASE}
+    depends_on:
+      - ryu-controller
     command: >
       bash -c "
-      service openvswitch-switch start &&
-      python3 topology.py
+      if [ \"$CASE\" != \"2\" ]; then
+        echo 'Q-learning agent disabled (case='$CASE')';
+        exit 0;
+      fi;
+      until nc -z ryu-controller 5556; do
+        echo Waiting for Ryu ZMQ;
+        sleep 1;
+      done;
+      python q_agent.py
       "
-
-networks:
-  sdn-net:
-    driver: bridge

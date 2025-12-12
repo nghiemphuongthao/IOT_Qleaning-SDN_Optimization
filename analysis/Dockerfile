@@ -1,16 +1,6 @@
-FROM python:3.8
-
+FROM python:3.11-slim
 WORKDIR /app
-
-RUN apt-get update && apt-get install -y python3-tk
-
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-RUN apt-get update && apt-get install -y netcat-openbsd
-
-COPY . .
-
-VOLUME /shared
-
-
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY collect_metrics.py compare_cases.py /app/
+CMD ["python", "collect_metrics.py"]

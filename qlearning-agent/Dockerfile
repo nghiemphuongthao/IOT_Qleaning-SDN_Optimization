@@ -1,10 +1,10 @@
-FROM python:3.7
+FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y build-essential python3-dev libsndfile1 \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
-RUN pip install --no-cache-dir pyzmq numpy scipy tensorflow==2.11.0 scikit-learn
+RUN apt-get update && apt-get install -y netcat-openbsd
 
-WORKDIR /agent
-COPY . /agent
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY q_agent.py model.py zmq_client.py /app/
 CMD ["python", "q_agent.py"]

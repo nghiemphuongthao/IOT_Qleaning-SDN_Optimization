@@ -1,23 +1,15 @@
-# IoT-SDN-Qlearning Project (Level 3 - Distributed with ZeroMQ)
+# IoT SDN + Q-learning (Ryu)
 
-## Yêu cầu
-- Docker, Docker Compose
-- Máy có >=8GB RAM (nên có GPU nếu train nhanh)
-- Chạy trên Linux preferred (Mininet privileged)
+Ports:
+- Critical UDP 5001
+- Telemetry UDP 5002
+- Bulk TCP 5003
 
-## Chạy nhanh
-1. Build & run:
-docker compose build --no-cache
-docker compose up --build
+Run:
+- case1: CASE=0 docker compose up
+- case2: CASE=1 docker compose up
+- case3: CASE=2 docker compose up
 
-2. Logs:
-docker logs -f ryu-controller
-docker logs -f qlearning-agent
-docker logs -f mininet-topology
-docker logs -f traffic-generator
-
-
-## Lưu ý
-- Mininet container cần `privileged: true`.
-- Nếu container name conflict, `docker rm -f <name>` trước.
-- Models, logs, results lưu ở folder `./shared`.
+Analysis:
+python3 analysis/collect_metrics.py
+python3 analysis/compare_cases.py

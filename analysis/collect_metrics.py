@@ -1,73 +1,75 @@
-import time
-import zmq
-import csv
-import json
-import psutil
-from datetime import datetime
+import os
+import glob
+import pandas as pd
 
-METRICS_FILE = "/shared/metrics_case3.csv"
+RAW_DIR = "./shared/raw"
+OUT_DIR = "./shared/results"
+os.makedirs(OUT_DIR, exist_ok=True)
 
-def write_header():
-    with open(METRICS_FILE, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "timestamp",
-            "cpu_usage",
-            "ram_usage",
-            "qos_class_0_load",
-            "qos_class_1_load",
-            "qos_class_2_load",
-            "latency_ms",
-            "packet_loss",
-            "reward",
-            "selected_action",
-            "anomaly_flag"
-        ])
+def parse_ping(file_path):
+    """
+    Parse ping output CSV
+    Expected column: time_ms
+    """
+    df = pd.read_csv(file_path)
+    avg_delay = df["time_ms"].mean()
+    loss = 100 * (1 - len(df) / df["seq"].max())
+    return avg_delay, loss
 
-def connect_zmq():
-    ctx = zmq.Context()
-    sub = ctx.socket(zmq.SUB)
-    sub.connect("tcp://ryu-controller:6000")
-    sub.setsockopt_string(zmq.SUBSCRIBE, "")
-    return sub
+def parse_iperf(file_path):
+    """
+    Parse iperf CSV
+    Expected column: bandwidth_mbps
+    """
+    df = pd.read_csv(file_path)
+    return df["bandwidth_mbps"].mean()
+
+def collect_case(case_id):
+    delay_list = []
+    loss_list = []
+    throughput_list = []
+
+    # ---------- CLIENT LOGS ----------
+    client_files = glob.glob(
+        f"{RAW_DIR}/case{case_id}_client_*.csv"
+    )
+
+    for f in client_files:
+        d, l = parse_ping(f)
+        delay_list.append(d)
+        loss_list.append(l)
+
+    # ---------- SERVER LOG ----------
+    server_file = f"{RAW_DIR}/case{case_id}_server.csv"
+    if os.path.exists(server_file):
+        t = parse_iperf(server_file)
+        throughput_list.append(t)
+
+    return (
+        sum(delay_list) / len(delay_list),
+        sum(loss_list) / len(loss_list),
+        sum(throughput_list) / len(throughput_list)
+    )
 
 def main():
-    write_header()
-    sub = connect_zmq()
+    results = []
 
-    print("[ANALYSIS] Listening for metrics...")
-
-    while True:
+    for case_id in [0, 1, 2]:
         try:
-            msg = sub.recv_string()
-            data = json.loads(msg)
-
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cpu = psutil.cpu_percent()
-            ram = psutil.virtual_memory().percent
-
-            row = [
-                timestamp,
-                cpu,
-                ram,
-                data.get("qos0", 0),
-                data.get("qos1", 0),
-                data.get("qos2", 0),
-                data.get("latency", 0),
-                data.get("loss", 0),
-                data.get("reward", 0),
-                data.get("action", -1),
-                data.get("anomaly", 0)
-            ]
-
-            with open(METRICS_FILE, "a", newline="") as f:
-                csv.writer(f).writerow(row)
-
-            print("[METRIC]", row)
-
+            delay, loss, thr = collect_case(case_id)
+            results.append({
+                "case": case_id,
+                "avg_delay_ms": round(delay, 2),
+                "packet_loss_percent": round(loss, 2),
+                "throughput_mbps": round(thr, 2)
+            })
+            print(f"[OK] Case {case_id} collected")
         except Exception as e:
-            print("Error:", e)
-            time.sleep(1)
+            print(f"[WARN] Case {case_id} skipped:", e)
+
+    df = pd.DataFrame(results)
+    df.to_csv(f"{OUT_DIR}/summary.csv", index=False)
+    print(f"\nSaved to {OUT_DIR}/summary.csv")
 
 if __name__ == "__main__":
     main()

@@ -1,115 +1,88 @@
-import os
-import time
-from functools import partial
+import os, time, subprocess
 from mininet.topo import Topo
-from mininet.node import Node, RemoteController, OVSKernelSwitch
+from mininet.node import RemoteController
 from mininet.net import Mininet
 from mininet.link import TCLink
+from mininet.log import info
 from mininet.cli import CLI
-from mininet.log import setLogLevel, info
 
-os.system("mn -c")
+def setup_qos_on_port(port_name: str):
+    max_rate = int(os.environ.get("LINK_MAX_RATE", "10000000"))
+    q0 = int(os.environ.get("Q0_MAX_RATE", "2000000"))
+    q1 = int(os.environ.get("Q1_MAX_RATE", "5000000"))
+    q2 = int(os.environ.get("Q2_MAX_RATE", "10000000"))
+    cmd = [
+        "ovs-vsctl",
+        "--", "set", "Port", port_name, "qos=@newqos",
+        "--", "--id=@newqos", "create", "QoS", "type=linux-htb",
+        f"other-config:max-rate={max_rate}",
+        "queues:0=@q0", "queues:1=@q1", "queues:2=@q2",
+        "--", "--id=@q0", "create", "Queue", f"other-config:max-rate={q0}",
+        "--", "--id=@q1", "create", "Queue", f"other-config:max-rate={q1}",
+        "--", "--id=@q2", "create", "Queue", f"other-config:max-rate={q2}",
+    ]
+    try:
+        subprocess.check_call(cmd)
+        info(f"*** [QoS] Applied HTB queues on {port_name}\n")
+    except subprocess.CalledProcessError:
+        info(f"*** [QoS] QoS exists or failed on {port_name} (ignored)\n")
 
-# ==========================================
-# 1. CLASS TOPOLOGY: MẠNG IOT - SDN (SINGLE NETWORK)
-# ==========================================
-class SDNIoTFlatTopo(Topo):
+class DynamicTopo(Topo):
     def build(self):
-        # --- SWITCHES (SDN) ---
-        g1 = self.addSwitch("g1", dpid="0000000000000100")
-        g2 = self.addSwitch("g2", dpid="0000000000000200")
-        g3 = self.addSwitch("g3", dpid="0000000000000300")
-        s1 = self.addSwitch("s1", dpid="0000000000000001")
-        s2 = self.addSwitch("s2", dpid="0000000000000002")
-        s3 = self.addSwitch("s3", dpid="0000000000000003")
-        s4 = self.addSwitch("s4", dpid="0000000000000004")
+        s0 = self.addSwitch("s0", dpid="0000000000000001", protocols="OpenFlow13")
+        s1 = self.addSwitch("s1", dpid="0000000000000100", protocols="OpenFlow13")
+        s2 = self.addSwitch("s2", dpid="0000000000000200", protocols="OpenFlow13")
+        s3 = self.addSwitch("s3", dpid="0000000000000300", protocols="OpenFlow13")
+        s4 = self.addSwitch("s4", dpid="0000000000000400", protocols="OpenFlow13")
+        cloud = self.addHost("cloud", ip="10.0.100.2/24")
 
-        cloud = self.addHost("cloud", ip="10.0.0.254/24")
-      
-        bw_backbone = 50   
-        bw_uplink = 1.5    
-        bw_access = 10     
+        bw_core = 10
+        self.addLink(s0, cloud, bw=bw_core)
+        self.addLink(s0, s1, bw=bw_core)
+        self.addLink(s0, s2, bw=bw_core)
+        self.addLink(s0, s3, bw=bw_core)
+        self.addLink(s0, s4, bw=bw_core)
 
-        # --- LINKS ---
+        bw_host = 10
+        for i in range(1,4):
+            h = self.addHost(f"h{i}", ip=f"10.0.1.{i}/24"); self.addLink(s1, h, bw=bw_host)
+        for i in range(4,6):
+            h = self.addHost(f"h{i}", ip=f"10.0.2.{i}/24"); self.addLink(s2, h, bw=bw_host)
+        for i in range(6,8):
+            h = self.addHost(f"h{i}", ip=f"10.0.3.{i}/24"); self.addLink(s3, h, bw=bw_host)
+        for i in range(8,11):
+            h = self.addHost(f"h{i}", ip=f"10.0.4.{i}/24"); self.addLink(s4, h, bw=bw_host)
 
-        self.addLink(g1, cloud, intfName1="g1-eth100", intfName2="cloud-eth0", 
-                     bw=bw_uplink, max_queue_size=100)  
-        self.addLink(g3, cloud, intfName1="g3-eth100", intfName2="cloud-eth1", 
-                     bw=bw_backbone)
-        self.addLink(g1, g2, bw=bw_backbone) 
-        self.addLink(g1, g3, bw=bw_backbone) 
-        self.addLink(g1, s1, bw=bw_access)
-        self.addLink(g1, s2, bw=bw_access)
-        self.addLink(g2, s3, bw=bw_access)
-        self.addLink(g3, s4, bw=bw_access)
-
-        # --- HOSTS (SENSORS) ---
-        # Zone 1 -> S1
-        for i in range(1, 4): 
-            self.addHost(f"h{i}", ip=f"10.0.0.{i}/24")
-            self.addLink(s1, f"h{i}", bw=bw_access)   
-        # Zone 2 -> S2
-        for i in range(4, 6): 
-            self.addHost(f"h{i}", ip=f"10.0.0.{i}/24")
-            self.addLink(s2, f"h{i}", bw=bw_access)
-        # Zone 3 -> S3
-        for i in range(6, 8): 
-            self.addHost(f"h{i}", ip=f"10.0.0.{i}/24")
-            self.addLink(s3, f"h{i}", bw=bw_access)
-        # Zone 4 -> S4
-        for i in range(8, 11): 
-            self.addHost(f"h{i}", ip=f"10.0.0.{i}/24")
-            self.addLink(s4, f"h{i}", bw=bw_access)
-# ==========================================
-# 2. MAIN FUNCTION
-# ==========================================
 def run():
-    topo = SDNIoTFlatTopo()
-    switch_with_protocol = partial(OVSKernelSwitch, protocols='OpenFlow13')   
-    net = Mininet(topo=topo, 
-                  controller=None, 
-                  switch=switch_with_protocol, 
-                  link=TCLink)
-     
-    info("[*] Connecting to Remote Controller...\n")
-    c0 = net.addController('c0', controller=RemoteController, ip='ryu-controller', port=6653)
+    ctrl_ip = os.environ.get("CONTROLLER_IP", "ryu-controller")
+    ctrl_port = int(os.environ.get("CONTROLLER_PORT", "6653"))
+    run_seconds = int(os.environ.get("RUN_SECONDS", "90"))
 
+    topo = DynamicTopo()
+    net = Mininet(topo=topo, controller=None, link=TCLink, autoSetMacs=True, autoStaticArp=True)
+    net.addController("c0", controller=RemoteController, ip=ctrl_ip, port=ctrl_port)
     net.start()
-    net.pingAll()
-    # info("\n=== SDN IOT NETWORK STARTED (FLAT IP: 10.0.0.x/24) ===\n")
-    # time.sleep(2) 
 
+    setup_qos_on_port("s0-eth1")
 
-    # cloud = net.get('cloud')
-    # cloud.cmd("ip addr add 10.0.0.253/24 dev cloud-eth1") 
-    # cloud.cmd("ip link set cloud-eth1 up")
-    # info("[*] Starting Background Services...\n")
-    # cloud.cmd("PYTHONIOENCODING=utf-8 python3 iot_server.py > server.log 2>&1 &")
-    # cloud.cmd("iperf -s -u -p 5001 &") 
-    
+    cloud = net.get("cloud")
+    cloud.cmd("mkdir -p /shared/raw")
+    cloud.cmd("python3 /traffic-generator/iot_server.py --bind 0.0.0.0 --out /shared/raw/case2_server.csv &")
+    time.sleep(1)
 
-    # sensors = {'h2': 'temp', 'h3': 'motion', 'h4': 'humid'}
-    # for h, t in sensors.items():
-    #     node = net.get(h)
+    for i in range(1,11):
+        h = net.get(f"h{i}")
+        h.cmd("mkdir -p /shared/raw")
+        h.cmd(f"python3 /traffic-generator/iot_sensor.py --name h{i} --server {cloud.IP()} --case case2 --out /shared/raw/case2_client_h{i}.csv &")
 
-    #     node.cmd(f"python3 iot_sensor.py {h} {t} &")
-    #     info(f" -> {h} started sending {t}\n")
+    time.sleep(20)
+    h10 = net.get("h10")
+    h10.cmd(f"python3 /traffic-generator/iot_sensor.py --name h10b --server {cloud.IP()} --case case2 --bulk_boost 1 --out /shared/raw/case2_client_h10b.csv &")
 
-    # info("\n------------------------------------------------\n")
-    # info("Network Ready!\n")
-    # info("Cloud Main IP: 10.0.0.254 (via G1)\n")
-    # info("Cloud Backup IP: 10.0.0.253 (via G3)\n")
-    # info("All Hosts: 10.0.0.1 -> 10.0.0.10\n")
-    # info("------------------------------------------------\n")
+    time.sleep(max(0, run_seconds - 20))
+    cloud.cmd("pkill -f iot_server.py || true")
+    for i in range(1,11):
+        net.get(f"h{i}").cmd("pkill -f iot_sensor.py || true")
 
     CLI(net)
-    
-    # info("[*] Stopping network...\n")
-    # os.system("pkill -f iot_server.py")
-    # os.system("pkill -f iot_sensor.py")
-    # os.system("pkill -f iperf")
     net.stop()
-
-if __name__ == "__main__":
-    setLogLevel("info") 
-    run()
