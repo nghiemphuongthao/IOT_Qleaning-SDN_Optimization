@@ -1,28 +1,40 @@
 FROM iwaseyusuke/mininet:latest
 
-# Cài thêm các gói cần thiết (nếu còn thiếu)
+# -----------------------
+# System dependencies
+# -----------------------
 RUN apt-get update && \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
         openvswitch-switch \
         iproute2 \
         iputils-ping \
         net-tools \
+        netcat-openbsd \
+        python3 \
         python3-pip && \
     rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y netcat-openbsd
-
-
-# Copy file topo + entrypoint
-COPY topology.py /app/topology.py
-COPY entrypoint.sh /app/entrypoint.sh
-COPY topologies /app/topologies
-COPY traffic-generator /app/traffic-generator
-
+# -----------------------
+# Project files
+# -----------------------
 WORKDIR /app
 
-ENV PYTHONPATH="/app:/app/topologies:${PYTHONPATH}"
+# Topology & scripts
+COPY topo_common.py /app/topo_common.py
+COPY run_no_sdn.py /app/run_no_sdn.py
+COPY run_sdn_traditional.py /app/run_sdn_traditional.py
+COPY run_sdn_qlearning.py /app/run_sdn_qlearning.py
+COPY qos_utils.py /app/qos_utils.py
 
-RUN chmod +x /app/entrypoint.sh
+# Traffic generator
+COPY traffic-generator /traffic-generator
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+# -----------------------
+# Python path
+# -----------------------
+ENV PYTHONPATH="/app:${PYTHONPATH}"
+
+# -----------------------
+# Default command
+# -----------------------
+CMD ["/bin/bash"]

@@ -1,39 +1,23 @@
 services:
 
-  mininet-topology:
+  ryu-controller:
+    build: ./ryu-controller
+    command: ryu-manager ryu_traditional.py
+    ports:
+      - "6653:6653"
+      - "5556-5557:5556-5557"
+
+  qlearning-agent:
+    build: ./qlearning-agent
+    depends_on:
+      - ryu-controller
+
+  mininet:
     build: ./mininet-topology
-    environment:
-      - CASE=${CASE}
-      - MODE=${MODE}
+    privileged: true
+    tty: true
+    stdin_open: true
     volumes:
       - ./shared:/shared
     depends_on:
       - ryu-controller
-
-  ryu-controller:
-    build: ./ryu-controller
-    environment:
-      - CASE=${CASE}
-    ports:
-      - "6653:6653"
-      - "5556:5556"
-      - "5557:5557"
-
-  qlearning-agent:
-    build: ./qlearning-agent
-    environment:
-      - CASE=${CASE}
-    depends_on:
-      - ryu-controller
-    command: >
-      bash -c "
-      if [ \"$CASE\" != \"2\" ]; then
-        echo 'Q-learning agent disabled (case='$CASE')';
-        exit 0;
-      fi;
-      until nc -z ryu-controller 5556; do
-        echo Waiting for Ryu ZMQ;
-        sleep 1;
-      done;
-      python q_agent.py
-      "

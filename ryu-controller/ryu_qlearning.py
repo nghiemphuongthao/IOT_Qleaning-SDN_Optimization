@@ -1,6 +1,4 @@
-import os
 import time
-import json
 import zmq
 
 from ryu.base import app_manager
@@ -10,26 +8,26 @@ from ryu.ofproto import ofproto_v1_3
 from ryu.lib import hub
 from ryu.lib.packet import packet, ethernet
 
-CASE = os.getenv("CASE", "1")
-USE_AGENT = (CASE == "2")
 
-class IoTQoSController(app_manager.RyuApp):
+class QLearningSDNController(app_manager.RyuApp):
+    """
+    Learning-based SDN controller using Q-learning agent.
+    """
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.datapaths = {}
 
-        # ZMQ
-        self.ctx = zmq.Context()
-        if USE_AGENT:
-            self.state_socket = self.ctx.socket(zmq.PUSH)
-            self.state_socket.bind("tcp://*:5556")
+        # ZMQ sockets
+        ctx = zmq.Context.instance()
+        self.state_socket = ctx.socket(zmq.PUSH)
+        self.state_socket.bind("tcp://*:5556")
 
-            self.action_socket = self.ctx.socket(zmq.PULL)
-            self.action_socket.bind("tcp://*:5557")
+        self.action_socket = ctx.socket(zmq.PULL)
+        self.action_socket.bind("tcp://*:5557")
 
-            hub.spawn(self._listen_action)
+        hub.spawn(self._listen_action)
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, MAIN_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -54,47 +52,33 @@ class IoTQoSController(app_manager.RyuApp):
     def packet_in_handler(self, ev):
         msg = ev.msg
         dp = msg.datapath
-        ofp = dp.ofproto
         parser = dp.ofproto_parser
 
-        in_port = msg.match['in_port']
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocol(ethernet.ethernet)
 
         if eth.ethertype == 0x88cc:
             return
 
-        # CASE 1: rule-based
-        if CASE == "1":
-            out_port = ofp.OFPP_FLOOD
+        # Send state to agent
+        state = {
+            "dpid": dp.id,
+            "src": eth.src,
+            "dst": eth.dst,
+            "in_port": msg.match['in_port'],
+            "time": time.time()
+        }
+        self.state_socket.send_json(state)
 
-        # CASE 2: send state to agent
-        elif CASE == "2":
-            state = {
-                "dpid": dp.id,
-                "src": eth.src,
-                "dst": eth.dst,
-                "in_port": in_port,
-                "time": time.time()
-            }
-            self.state_socket.send_json(state)
-            out_port = ofp.OFPP_FLOOD  # fallback
-
-        else:
-            return
-
-        actions = [parser.OFPActionOutput(out_port)]
-        dp.send_msg(parser.OFPFlowMod(
+        # Fallback: wait for agent decision
+        # (temporary flooding)
+        actions = [parser.OFPActionOutput(dp.ofproto.OFPP_FLOOD)]
+        dp.send_msg(parser.OFPPacketOut(
             datapath=dp,
-            priority=1,
-            match=parser.OFPMatch(
-                eth_dst=eth.dst
-            ),
-            instructions=[
-                parser.OFPInstructionActions(
-                    ofp.OFPIT_APPLY_ACTIONS, actions
-                )
-            ]
+            buffer_id=msg.buffer_id,
+            in_port=msg.match['in_port'],
+            actions=actions,
+            data=msg.data
         ))
 
     def _listen_action(self):
@@ -107,16 +91,14 @@ class IoTQoSController(app_manager.RyuApp):
         if not dp:
             return
 
-        ofp = dp.ofproto
         parser = dp.ofproto_parser
+        ofp = dp.ofproto
 
-        match = parser.OFPMatch(eth_dst=action["dst"])
         actions = [parser.OFPActionOutput(action["out_port"])]
-
         dp.send_msg(parser.OFPFlowMod(
             datapath=dp,
             priority=10,
-            match=match,
+            match=parser.OFPMatch(eth_dst=action["dst"]),
             instructions=[
                 parser.OFPInstructionActions(
                     ofp.OFPIT_APPLY_ACTIONS, actions
