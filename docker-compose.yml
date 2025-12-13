@@ -19,7 +19,8 @@ services:
     container_name: ryu-controller
     command: ryu-manager ryu_traditional.py
     ports:
-      - "6633:6633"
+      - "6653:6653"
+      - "8080:8080"
     networks:
       - sdn-net
 
@@ -28,6 +29,12 @@ services:
     container_name: qlearning-agent
     networks:
       - sdn-net
+    volumes:
+      - ./shared:/shared
+    environment:
+      - RYU_HOST=ryu-controller
+    depends_on:
+      - ryu-controller
 
 networks:
   sdn-net:

@@ -82,7 +82,7 @@ def run():
     net = Mininet(topo=topo, controller=None, switch=switch_with_protocol, link=TCLink)
     
     info("[*] Connecting to Remote Controller...\n")
-    c0 = net.addController('c0', controller=RemoteController, ip='ryu-controller', port=6633)
+    c0 = net.addController('c0', controller=RemoteController, ip='ryu-controller', port=6653)
 
     net.start()
     

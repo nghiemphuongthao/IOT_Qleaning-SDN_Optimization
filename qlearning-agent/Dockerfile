@@ -6,5 +6,5 @@ RUN apt-get update && apt-get install -y netcat-openbsd
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
-COPY q_agent.py model.py zmq_client.py /app/
+COPY q_agent.py model.py /app/
 CMD ["python", "q_agent.py"]

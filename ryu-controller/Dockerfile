@@ -10,8 +10,6 @@ COPY . /app
 RUN pip install --no-cache-dir ryu==4.34 pyzmq networkx eventlet==0.30.2 numpy
 
 COPY ryu_traditional.py /app/ryu_traditional.py
-COPY ryu_qlearning.py /app/ryu_qlearning.py
 
-# expose OF port and ZMQ ports
-EXPOSE 6633 5556 5557
+EXPOSE 6653 8080
 

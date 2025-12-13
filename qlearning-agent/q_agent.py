@@ -1,129 +1,171 @@
-import zmq
 import time
 import random
-import pickle
+import requests
+import pandas as pd
 import os
-from collections import defaultdict
 
-# =====================================================
-# Q-learning hyperparameters
-# =====================================================
-ALPHA = 0.1        # learning rate
-GAMMA = 0.9        # discount factor
-EPSILON = 0.1      # exploration probability
+# ================= CONFIG =================
+RYU_HOST = os.environ.get("RYU_HOST", "ryu-controller")
+RYU_PORT = 8080
+RYU_API = f"http://{RYU_HOST}:{RYU_PORT}"
 
-# Output ports (adjust if topology changes)
-ACTIONS = [1, 2, 3]
+DPID = 256
+DEST_SUBNET = "10.0.100"      # subnet, not host
 
-# Queue thresholds (bytes) for reward shaping
-LOW_Q = 5_000
-HIGH_Q = 20_000
+ACTIONS = [1, 5]              # output ports (primary / backup)
+ALPHA = 0.5                   # learning rate
+GAMMA = 0.9                   # discount factor
+EPSILON = 0.2                 # exploration rate
 
-# Q-table persistence
-QTABLE_PATH = "/shared/qtable.pkl"
+CSV_DIR = "/shared/raw"
+INTERVAL = 10                 # seconds between decisions
+FLOW_SETTLE_TIME = 3          # wait after policy update
 
-# =====================================================
-# ZMQ setup
-# =====================================================
-ctx = zmq.Context.instance()
+# ================= Q-TABLE =================
+Q = {
+    "LOW":    [0.0, 0.0],
+    "MEDIUM": [0.0, 0.0],
+    "HIGH":   [0.0, 0.0]
+}
 
-state_socket = ctx.socket(zmq.PULL)
-state_socket.connect("tcp://ryu-controller:5556")
-
-action_socket = ctx.socket(zmq.PUSH)
-action_socket.connect("tcp://ryu-controller:5557")
-
-# =====================================================
-# Q-table initialization
-# =====================================================
-if os.path.exists(QTABLE_PATH):
-    with open(QTABLE_PATH, "rb") as f:
-        Q = pickle.load(f)
-    print("[AGENT] Loaded Q-table from disk")
-else:
-    Q = defaultdict(lambda: {a: 0.0 for a in ACTIONS})
-    print("[AGENT] Initialized new Q-table")
-
-# =====================================================
-# Helper functions
-# =====================================================
-def choose_action(state):
-    """Epsilon-greedy action selection."""
-    if random.random() < EPSILON:
-        return random.choice(ACTIONS)
-    return max(Q[state], key=Q[state].get)
-
-
-def compute_reward(queue_len):
+# ================= METRIC READING =================
+def read_throughput():
     """
-    Reward based on queue backlog.
-    Smaller queue -> higher reward.
+    Read latest CLOUD (server) throughput.
+    This represents real network performance.
     """
-    if queue_len < LOW_Q:
-        return 1.0
-    elif queue_len < HIGH_Q:
+    try:
+        files = [
+            f for f in os.listdir(CSV_DIR)
+            if f.endswith(".csv") and "server" in f
+        ]
+        if not files:
+            return 0.0
+
+        # Sort by modified time (newest last)
+        files.sort(
+            key=lambda f: os.path.getmtime(os.path.join(CSV_DIR, f))
+        )
+
+        df = pd.read_csv(os.path.join(CSV_DIR, files[-1]))
+
+        if "throughput" not in df.columns or df.empty:
+            return 0.0
+
+        # Use latest measurement
+        return float(df["throughput"].iloc[-1])
+
+    except Exception as e:
+        print(f"[AGENT] Metric read error: {e}", flush=True)
         return 0.0
+
+
+# ================= STATE =================
+def get_state(throughput):
+    """
+    Discretize throughput into performance states.
+    Tuned for ~5 Mbps traffic.
+    """
+    if throughput < 2:
+        return "LOW"
+    elif throughput < 4:
+        return "MEDIUM"
     else:
-        return -1.0
+        return "HIGH"
 
 
-def update_q(prev_state, action, reward, next_state):
-    """Bellman Q-learning update."""
-    best_next = max(Q[next_state].values())
-    Q[prev_state][action] += ALPHA * (
-        reward + GAMMA * best_next - Q[prev_state][action]
+# ================= ACTION SELECTION =================
+def choose_action(state):
+    """
+    Epsilon-greedy policy.
+    """
+    if random.random() < EPSILON:
+        return random.randint(0, 1)
+    return Q[state].index(max(Q[state]))
+
+
+# ================= SEND POLICY UPDATE =================
+def wait_for_switch(dpid, timeout=20, interval=1):
+    url = f"{RYU_API}/switches"
+    start = time.time()
+
+    while time.time() - start < timeout:
+        try:
+            r = requests.get(url, timeout=2)
+            if r.status_code == 200:
+                switches = r.json()   # 👈 LIST
+                if dpid in switches:
+                    print(f"[AGENT] Switch {dpid} is ready", flush=True)
+                    return True
+        except Exception as e:
+            print(f"[AGENT] wait switch error: {e}", flush=True)
+
+        time.sleep(interval)
+
+    print(f"[AGENT] Timeout waiting for switch {dpid}", flush=True)
+    return False
+
+
+
+def send_action(action_idx):
+    """
+    Notify Ryu controller to update forwarding policy.
+    """
+    port = ACTIONS[action_idx]
+    url = f"{RYU_API}/router/{DPID}"
+
+    # # 🔥 đợi switch connect trước
+    # if not wait_for_switch(DPID):
+    #     print("[AGENT] Switch not ready, skip action", flush=True)
+    #     return
+
+    payload = {
+        "dest": DEST_SUBNET,
+        "port": port
+    }
+
+    try:
+        r = requests.post(url, json=payload, timeout=2)
+        return r.status_code == 200
+    except Exception as e:
+        print(f"[AGENT] API error: {e}", flush=True)
+        return False
+
+
+# ================= MAIN LOOP =================
+print("[AGENT] Q-learning agent started (CASE 3 – Performance Optimization)", flush=True)
+
+while True:
+    # --- Observe current performance ---
+    throughput = read_throughput()
+    state = get_state(throughput)
+
+    # --- Select & apply action ---
+    action = choose_action(state)
+    ok = send_action(action)
+
+    # --- Wait for data plane to reflect change ---
+    time.sleep(FLOW_SETTLE_TIME)
+
+    # --- Observe new performance ---
+    next_throughput = read_throughput()
+    next_state = get_state(next_throughput)
+
+    # --- Reward = achieved throughput ---
+    reward = next_throughput if ok else -5.0
+
+    # --- Q-learning update ---
+    Q[state][action] = Q[state][action] + ALPHA * (
+        reward + GAMMA * max(Q[next_state]) - Q[state][action]
     )
 
+    # --- Logging ---
+    print(
+        f"[AGENT] state={state:<6} "
+        f"action=port{ACTIONS[action]} "
+        f"reward={reward:5.2f} "
+        f"Q={Q[state]}",
+        flush=True
+    )
 
-def save_qtable():
-    with open(QTABLE_PATH, "wb") as f:
-        pickle.dump(Q, f)
-    print("[AGENT] Q-table saved")
-
-
-# =====================================================
-# Main learning loop
-# =====================================================
-print("[AGENT] Q-learning agent started")
-
-prev_state = None
-prev_action = None
-
-try:
-    while True:
-        # Receive state from controller
-        state_msg = state_socket.recv_json()
-
-        # Define state (minimal but meaningful)
-        state = (state_msg["dpid"], state_msg["dst"])
-
-        # Choose action
-        action = choose_action(state)
-
-        # Compute reward from queue length
-        queue_len = state_msg.get("queue_len", 0)
-        reward = compute_reward(queue_len)
-
-        # Q-learning update
-        if prev_state is not None:
-            update_q(prev_state, prev_action, reward, state)
-
-        # Send action back to controller
-        action_socket.send_json({
-            "dpid": state_msg["dpid"],
-            "dst": state_msg["dst"],
-            "out_port": action
-        })
-
-        prev_state = state
-        prev_action = action
-
-        # Periodic persistence
-        if random.random() < 0.01:
-            save_qtable()
-
-        time.sleep(0.05)
-
-except KeyboardInterrupt:
-    print("[AGENT] Interrupted, saving Q-table...")
-    save_qtable()
+    time.sleep(INTERVAL)
