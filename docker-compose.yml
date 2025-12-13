@@ -1,23 +1,34 @@
+version: "3.8"
+
 services:
+  mininet:
+    build: ./mininet-topology
+    container_name: mininet
+    privileged: true
+    tty: true
+    depends_on:
+      - ryu-controller
+      - qlearning-agent
+    networks:
+      - sdn-net
+    volumes:
+      - ./shared:/shared
 
   ryu-controller:
     build: ./ryu-controller
+    container_name: ryu-controller
     command: ryu-manager ryu_traditional.py
     ports:
-      - "6653:6653"
-      - "5556-5557:5556-5557"
+      - "6633:6633"
+    networks:
+      - sdn-net
 
   qlearning-agent:
     build: ./qlearning-agent
-    depends_on:
-      - ryu-controller
+    container_name: qlearning-agent
+    networks:
+      - sdn-net
 
-  mininet:
-    build: ./mininet-topology
-    privileged: true
-    tty: true
-    stdin_open: true
-    volumes:
-      - ./shared:/shared
-    depends_on:
-      - ryu-controller
+networks:
+  sdn-net:
+    driver: bridge

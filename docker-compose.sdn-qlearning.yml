@@ -1,0 +1,6 @@
+services:
+  ryu-controller:
+    command: ryu-manager ryu_qlearning.py
+
+  qlearning-agent:
+    command: python3 q_agent.py

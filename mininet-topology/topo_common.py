@@ -1,27 +1,42 @@
 from mininet.topo import Topo
+from mininet.node import Node
 
-class IoTAccessTopo(Topo):
+class LinuxRouter(Node):
+    def config(self, **params):
+        super().config(**params)
+        self.cmd('sysctl -w net.ipv4.ip_forward=1')
+
+    def terminate(self):
+        self.cmd('sysctl -w net.ipv4.ip_forward=0')
+        super().terminate()
+
+
+class SDNIoTTopo(Topo):
     def build(self):
-        s0 = self.addSwitch("s0", dpid="0000000000000001", protocols="OpenFlow13")
-        s1 = self.addSwitch("s1", dpid="0000000000000100", protocols="OpenFlow13")
-        s2 = self.addSwitch("s2", dpid="0000000000000200", protocols="OpenFlow13")
-        s3 = self.addSwitch("s3", dpid="0000000000000300", protocols="OpenFlow13")
-        s4 = self.addSwitch("s4", dpid="0000000000000400", protocols="OpenFlow13")
+        # Routers / Switches
+        g1 = self.addNode('g1', cls=LinuxRouter)
+        g2 = self.addNode('g2', cls=LinuxRouter)
+        g3 = self.addNode('g3', cls=LinuxRouter)
 
-        cloud = self.addHost("cloud", ip="10.0.100.2/24")
+        s1 = self.addSwitch('s1')
+        s2 = self.addSwitch('s2')
+        s3 = self.addSwitch('s3')
+        s4 = self.addSwitch('s4')
 
-        bw = 10
-        self.addLink(s0, cloud, bw=bw)
-        self.addLink(s0, s1, bw=bw)
-        self.addLink(s0, s2, bw=bw)
-        self.addLink(s0, s3, bw=bw)
-        self.addLink(s0, s4, bw=bw)
+        cloud = self.addHost('cloud', ip='10.0.0.254/24')
 
-        for i in range(1, 4):
-            self.addLink(s1, self.addHost(f"h{i}", ip=f"10.0.1.{i}/24"), bw=bw)
-        for i in range(4, 6):
-            self.addLink(s2, self.addHost(f"h{i}", ip=f"10.0.2.{i}/24"), bw=bw)
-        for i in range(6, 8):
-            self.addLink(s3, self.addHost(f"h{i}", ip=f"10.0.3.{i}/24"), bw=bw)
-        for i in range(8, 11):
-            self.addLink(s4, self.addHost(f"h{i}", ip=f"10.0.4.{i}/24"), bw=bw)
+        # Links
+        self.addLink(g1, g2)
+        self.addLink(g1, g3)
+        self.addLink(g1, s1)
+        self.addLink(g1, s2)
+        self.addLink(g2, s3)
+        self.addLink(g3, s4)
+
+        self.addLink(g1, cloud)
+
+        # Hosts
+        for i in range(1, 11):
+            h = self.addHost(f'h{i}', ip=f'10.0.0.{i}/24')
+            sw = s1 if i <= 3 else s2 if i <= 5 else s3 if i <= 7 else s4
+            self.addLink(sw, h)

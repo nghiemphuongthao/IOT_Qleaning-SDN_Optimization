@@ -21,13 +21,15 @@ WORKDIR /app
 
 # Topology & scripts
 COPY topo_common.py /app/topo_common.py
+COPY qos_utils.py /app/qos_utils.py
 COPY run_no_sdn.py /app/run_no_sdn.py
 COPY run_sdn_traditional.py /app/run_sdn_traditional.py
 COPY run_sdn_qlearning.py /app/run_sdn_qlearning.py
-COPY qos_utils.py /app/qos_utils.py
+
+
 
 # Traffic generator
-COPY traffic-generator /traffic-generator
+COPY traffic-generator /app/traffic-generator
 
 # -----------------------
 # Python path
