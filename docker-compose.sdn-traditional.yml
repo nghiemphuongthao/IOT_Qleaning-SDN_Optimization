@@ -2,5 +2,3 @@ services:
   ryu-controller:
     command: ryu-manager ryu_traditional.py
 
-  qlearning-agent:
-    command: sleep infinity

@@ -8,7 +8,6 @@ services:
     tty: true
     depends_on:
       - ryu-controller
-      - qlearning-agent
     networks:
       - sdn-net
     volumes:
@@ -23,19 +22,6 @@ services:
       - "8080:8080"
     networks:
       - sdn-net
-
-  qlearning-agent:
-    build: ./qlearning-agent
-    command: python3 q_agent.py
-    container_name: qlearning-agent
-    networks:
-      - sdn-net
-    volumes:
-      - ./shared:/shared
-    environment:
-      - RYU_HOST=ryu-controller
-    depends_on:
-      - ryu-controller
 
 networks:
   sdn-net:

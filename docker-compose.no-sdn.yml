@@ -2,5 +2,5 @@ services:
   ryu-controller:
     command: sleep infinity
 
-  qlearning-agent:
+  qlearning_agent :
     command: sleep infinity

@@ -43,7 +43,7 @@ class SDNIoTTreeTopo(Topo):
         # Port 4: Ra G2 (Zone 3)
         self.addLink(g1, g2, port1=4, port2=1, bw=50)
         # Port 5: Ra G3 (Zone 4 + Backup)
-        self.addLink(g1, g3, port1=5, port2=1, bw=50)
+        self.addLink(g1, g3, port1=5, port2=1, bw=10)
 
         self.addLink(g2, s3, port1=2, bw=bw_router)
 

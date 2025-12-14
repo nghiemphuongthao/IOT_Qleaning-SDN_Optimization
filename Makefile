@@ -5,6 +5,6 @@ down-qlearning:
 log-ryu:
 	docker logs -f ryu-controller
 log-agent:
-	docker logs -f qlearning-agent
+	docker logs -f qlearning_agent 
 
 .PHONY: qlearning down-qlearning log-ryu log-agent
