@@ -1,4 +1,4 @@
 psutil
 matplotlib
 pandas
-pyzmq
+numpy

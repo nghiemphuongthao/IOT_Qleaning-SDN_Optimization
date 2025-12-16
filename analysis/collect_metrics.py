@@ -2,74 +2,75 @@ import os
 import glob
 import pandas as pd
 
-RAW_DIR = "./shared/raw"
-OUT_DIR = "./shared/results"
+# ====== ĐƯỜNG DẪN ĐÚNG TRONG CONTAINER ======
+RAW_DIR = "/shared/raw"
+OUT_DIR = "/shared/results"
 os.makedirs(OUT_DIR, exist_ok=True)
 
-def parse_ping(file_path):
-    """
-    Parse ping output CSV
-    Expected column: time_ms
-    """
-    df = pd.read_csv(file_path)
-    avg_delay = df["time_ms"].mean()
-    loss = 100 * (1 - len(df) / df["seq"].max())
-    return avg_delay, loss
+def analyze_case(case_name):
+    files = glob.glob(f"{RAW_DIR}/{case_name}_*.csv")
+    if not files:
+        print(f"[WARN] No CSV found for {case_name}")
+        return None
 
-def parse_iperf(file_path):
-    """
-    Parse iperf CSV
-    Expected column: bandwidth_mbps
-    """
-    df = pd.read_csv(file_path)
-    return df["bandwidth_mbps"].mean()
+    df_all = []
+    for f in files:
+        try:
+            df_all.append(pd.read_csv(f))
+        except Exception as e:
+            print(f"[WARN] Cannot read {f}: {e}")
 
-def collect_case(case_id):
-    delay_list = []
-    loss_list = []
-    throughput_list = []
+    if not df_all:
+        return None
 
-    # ---------- CLIENT LOGS ----------
-    client_files = glob.glob(
-        f"{RAW_DIR}/case{case_id}_client_*.csv"
-    )
+    df = pd.concat(df_all, ignore_index=True)
 
-    for f in client_files:
-        d, l = parse_ping(f)
-        delay_list.append(d)
-        loss_list.append(l)
+    # ===== UDP (telemetry + critical) =====
+    udp_df = df[df["class"].isin(["telemetry", "critical"])]
 
-    # ---------- SERVER LOG ----------
-    server_file = f"{RAW_DIR}/case{case_id}_server.csv"
-    if os.path.exists(server_file):
-        t = parse_iperf(server_file)
-        throughput_list.append(t)
+    sent = udp_df["sent"].sum()
+    lost = udp_df["lost"].sum()
+    loss_rate = lost / sent if sent > 0 else None
 
-    return (
-        sum(delay_list) / len(delay_list),
-        sum(loss_list) / len(loss_list),
-        sum(throughput_list) / len(throughput_list)
-    )
+    rtt_df = udp_df[udp_df["rtt_ms"].notna()]
+    avg_rtt = rtt_df["rtt_ms"].mean() if not rtt_df.empty else None
+
+    # ===== TCP BULK =====
+    tcp_df = df[df["class"] == "bulk"]
+    avg_throughput = tcp_df["bps"].mean() / 1e6 if not tcp_df.empty else None
+
+    return {
+        "case": case_name,
+        "packet_loss_rate": loss_rate,
+        "avg_rtt_ms": avg_rtt,
+        "avg_throughput_mbps": avg_throughput
+    }
 
 def main():
+    cases = ["no_sdn", "sdn_traditional", "sdn_qlearning"]
     results = []
 
-    for case_id in [0, 1, 2]:
-        try:
-            delay, loss, thr = collect_case(case_id)
-            results.append({
-                "case": case_id,
-                "avg_delay_ms": round(delay, 2),
-                "packet_loss_percent": round(loss, 2),
-                "throughput_mbps": round(thr, 2)
-            })
-            print(f"[OK] Case {case_id} collected")
-        except Exception as e:
-            print(f"[WARN] Case {case_id} skipped:", e)
+    for c in cases:
+        res = analyze_case(c)
+        if res:
+            results.append(res)
+            print(f"[OK] Collected {c}")
+
+    if not results:
+        print("[ERROR] No data collected")
+        return
 
     df = pd.DataFrame(results)
-    df.to_csv(f"{OUT_DIR}/summary.csv", index=False)
-    print(f"\nSaved to {OUT_DIR}/summary.csv")
+    df["packet_loss_rate"] = df["packet_loss_rate"].round(4)
+    df["avg_rtt_ms"] = df["avg_rtt_ms"].round(2)
+    df["avg_throughput_mbps"] = df["avg_throughput_mbps"].round(2)
+
+    out = f"{OUT_DIR}/summary.csv"
+    df.to_csv(out, index=False)
+
+    print("\n=== SUMMARY ===")
+    print(df)
+    print(f"\nSaved to {out}")
 
 if __name__ == "__main__":
     main()

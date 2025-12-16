@@ -41,9 +41,9 @@ class SDNIoTTreeTopo(Topo):
         # Port 3: Ra S2 (Zone 2)
         self.addLink(g1, s2, port1=3, bw=bw_router)
         # Port 4: Ra G2 (Zone 3)
-        self.addLink(g1, g2, port1=4, port2=1, bw=50)
+        self.addLink(g1, g2, port1=4, port2=1, bw=10)
         # Port 5: Ra G3 (Zone 4 + Backup)
-        self.addLink(g1, g3, port1=5, port2=1, bw=10)
+        self.addLink(g1, g3, port1=5, port2=1, bw=50)
 
         self.addLink(g2, s3, port1=2, bw=bw_router)
 
@@ -111,7 +111,13 @@ def run():
     sensors = {'h1': 'temp', 'h2': 'humid', 'h3': 'motion', 'h4': 'temp', 'h10': 'humid'}
     for h, t in sensors.items():
         node = net.get(h)
-        node.cmd(f"python3 traffic-generator/iot_sensor.py {h} {t} &")
+        node.cmd(
+  f"python3 traffic-generator/iot_sensor.py "
+  f"--name {h} "
+  f"--server 10.0.100.2 "
+  f"--case sdn_qlearning "
+  f"--out /shared/raw/sdn_qlearning_{h}.csv &"
+)
         info(f" -> {h} started sending {t}\n")
 
     CLI(net)

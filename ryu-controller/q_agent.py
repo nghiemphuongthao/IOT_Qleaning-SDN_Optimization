@@ -2,7 +2,14 @@ import numpy as np
 import random
 
 class QAgent:
-    def __init__(self, n_states=3, n_actions=2, alpha=0.1, gamma=0.9, epsilon=0.3):
+    ACTION_MAP = {
+        0: (100, 0),    # 100% qua Port 1
+        1: (70, 30),     # 70% qua Port 1, 30% qua Port 5
+        2: (50, 50),     # 50% qua Port 1, 50% qua Port 5
+        3: (0, 100)      # 100% qua Port 5
+    }
+
+    def __init__(self, n_states=3, n_actions=4, alpha=0.1, gamma=0.95, epsilon=0.3):
         self.n_states = n_states
         self.n_actions = n_actions
         self.alpha = alpha
@@ -12,7 +19,13 @@ class QAgent:
         self.epsilon_decay = 0.995
         
         self.q_table = np.zeros((n_states, n_actions))
-        self.action_names = {0: "Port 1 (Main)", 1: "Port 5 (Backup)"}
+
+        self.action_names = {
+            0: "100:0 (P1)", 
+            1: "70:30", 
+            2: "50:50", 
+            3: "0:100 (P5)"
+        }
 
     def choose_action(self, state):
         if random.uniform(0, 1) < self.epsilon:
@@ -33,8 +46,14 @@ class QAgent:
 
     def print_q_table(self):
         print("\n=== Q-Table (SW256 → Cloud 10.0.100) ===")
-        print("State        | Port 1 (Main) | Port 5 (Backup) | Best Action")
+        print("State        | 100:0 (P1) | 70:30      | 50:50      | 0:100 (P5) | Best Action")
         states = ["Low Load   ", "Medium Load", "High Load  "]
+        
+        header_line = "-" * (13 + 12 * 4 + 13)
+        print(header_line)
+
         for s in range(self.n_states):
             best = self.action_names[self.get_best_action(s)]
-            print(f"{states[s]} | {self.q_table[s][0]:12.2f} | {self.q_table[s][1]:13.2f} | {best}")
+            q_values = [f"{v:10.2f}" for v in self.q_table[s]]
+            print(f"{states[s]} | {' | '.join(q_values)} | {best}")
+        print(header_line)

@@ -23,6 +23,16 @@ services:
     networks:
       - sdn-net
 
+  analysis:
+    build: ./analysis
+    container_name: analysis
+    tty: true
+    depends_on:
+      - mininet
+    networks:
+      - sdn-net
+    volumes:
+      - ./shared:/shared
 
 networks:
   sdn-net:
