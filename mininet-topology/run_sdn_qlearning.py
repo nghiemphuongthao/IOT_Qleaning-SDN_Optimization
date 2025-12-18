@@ -85,6 +85,7 @@ def run():
     c0 = net.addController('c0', controller=RemoteController, ip='ryu-controller', port=6653)
 
     net.start()
+    net.pingAll()
     
     cloud = net.get('cloud')
     info("[*] Disabling rp_filter on Cloud...\n")

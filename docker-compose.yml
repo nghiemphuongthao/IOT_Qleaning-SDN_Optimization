@@ -10,8 +10,11 @@ services:
       - ryu-controller
     networks:
       - sdn-net
+    environment:
+      - DISPLAY=${DISPLAY}
     volumes:
       - ./shared:/shared
+      - /tmp/.X11-unix:/tmp/.X11-unix
 
   ryu-controller:
     build: ./ryu-controller
@@ -22,6 +25,9 @@ services:
       - "8080:8080"
     networks:
       - sdn-net
+    volumes:
+      - ./shared:/shared
+      - ./logs:/logs
 
   analysis:
     build: ./analysis

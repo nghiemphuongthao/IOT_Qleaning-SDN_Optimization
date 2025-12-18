@@ -12,6 +12,7 @@ services:
       - sdn-net
     volumes:
       - ./shared:/shared
+      - ./logs:/logs
 
   ryu-controller:
     build: ./ryu-controller
@@ -22,6 +23,9 @@ services:
       - "8080:8080"
     networks:
       - sdn-net
+    volumes:
+      - ./shared:/shared
+      - ./logs:/logs 
 
 networks:
   sdn-net:

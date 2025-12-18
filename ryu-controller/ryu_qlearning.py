@@ -11,24 +11,25 @@ from ryu.lib.packet import packet, ethernet, arp, ipv4, ether_types
 from ryu.lib import hub
 from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 from webob import Response
-from q_agent import QAgent
+import numpy as np
+import random
+import csv
+import os
 
-
-# --- CẤU HÌNH LOAD BALANCING VÀ OFP ---
+# --- CẤU HÌNH QUEUE OPTIMIZATION VÀ OFP ---
 ACTION_MAP = {
-    0: (100, 0),    # 100% qua Port 1
-    1: (70, 30),     # 70% qua Port 1, 30% qua Port 5
-    2: (50, 50),     # 50% qua Port 1, 50% qua Port 5
-    3: (0, 100)      # 100% qua Port 5
+    0: (1, 0, 0xffff),    # Port 1, Queue 0: unlimited
+    1: (1, 1, 700),       # Port 1, Queue 1: 70%
+    2: (1, 2, 500),       # Port 1, Queue 2: 50%
+    3: (5, 0, 0xffff)     # Port 5, Queue 0: unlimited (backup)
 }
 SW256_DPID = 256
 CLOUD_PORT_MAIN = 1
 CLOUD_PORT_BACKUP = 5
-GROUP_ID = 100 # ID của Group Select cho Load Balancing
 
 # --- CONFIGURATION ---
 CONGESTION_THRESHOLD = 4000000  # 4MB/s ~ 32Mbps (Warning Threshold)
-MONITOR_INTERVAL = 5            # Giám sát và điều khiển mỗi 5 giây
+MONITOR_INTERVAL = 2            # Monitor every 2 seconds
 
 simple_switch_instance_name = 'simple_switch_api_app'
 url = '/router/{dpid}'
@@ -41,13 +42,66 @@ class Colors:
     BLUE = '\033[94m'
     RESET = '\033[0m'
 
+# Định nghĩa class QAgent
+class QAgent:
+    def __init__(self, n_states, n_actions, alpha=0.1, gamma=0.9, epsilon=1.0, epsilon_min=0.01, epsilon_decay=0.995, log_dir='logs'):
+        self.n_states = n_states
+        self.n_actions = n_actions
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.epsilon_min = epsilon_min
+        self.epsilon_decay = epsilon_decay
+        self.q_table = np.zeros((n_states, n_actions))  # Q-table là numpy array
+        self.log_dir = log_dir
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.log_file = os.path.join(self.log_dir, 'qlearning_log.csv')
+        self._init_log()
+
+    def _init_log(self):
+        with open(self.log_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['timestamp', 'state', 'action', 'reward', 'load_mb_s', 'drops', 'epsilon', 'q_values'])
+
+    def choose_action(self, state):
+        if random.uniform(0, 1) < self.epsilon:
+            return random.randint(0, self.n_actions - 1)  # Explore
+        else:
+            return np.argmax(self.q_table[state])  # Exploit
+
+    def learn(self, state, action, reward, next_state):
+        predict = self.q_table[state, action]
+        target = reward + self.gamma * np.max(self.q_table[next_state])
+        self.q_table[state, action] += self.alpha * (target - predict)
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+
+    def get_best_action(self, state):
+        return np.argmax(self.q_table[state])
+
+    def print_q_table(self):
+        print("Q-Table:")
+        for i in range(self.n_states):
+            print(f"State {i}: {self.q_table[i]}")
+
+    def log_step(self, state, action, reward, load, drops):
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        q_values = ','.join(map(str, self.q_table[state]))
+        with open(self.log_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([timestamp, state, action, reward, load / 1e6, drops, self.epsilon, q_values])
+
+    def export_q_table(self, file_name='qtable.csv'):
+        export_path = os.path.join(self.log_dir, file_name)
+        np.savetxt(export_path, self.q_table, delimiter=',', header=','.join([f'Action {i}' for i in range(self.n_actions)]), comments='')
+        print(f"{Colors.GREEN}[EXPORT] Q-table exported to {export_path}{Colors.RESET}")
+
 class AntiLoopController(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     _CONTEXTS = {'wsgi': WSGIApplication}
 
     def __init__(self, *args, **kwargs):
         super(AntiLoopController, self).__init__(*args, **kwargs)
-        self.logger.info(f"{Colors.GREEN}--> [SYSTEM] Anti-Loop + RL Controller Ready.{Colors.RESET}")
+        self.logger.info(f"{Colors.GREEN}--> [SYSTEM] Controller V2 Debug Ready.{Colors.RESET}")
         
         wsgi = kwargs['wsgi']
         wsgi.register(RestRouterController, {simple_switch_instance_name: self})
@@ -56,15 +110,19 @@ class AntiLoopController(app_manager.RyuApp):
         self.CLOUD_MAC   = "00:00:00:00:00:FF" 
         
         self.datapaths = {}
-        self.groups_installed = set()  # Dùng set để theo dõi Group ID đã được cài đặt
+        self.groups_installed = {} 
         self.prev_stats = {} 
-        self.q_port_load = {}      # Lưu tốc độ port cho Q-Learning
+        self.prev_queue_stats = {}
+        self.q_port_load = {}      # Lưu tốc độ port/queue cho Q-Learning
+        self.q_drops = {}          # Lưu drops cho Q-Learning
 
         # Biến Q-Learning
-        self.q_agent = QAgent(n_states=3, n_actions=4)  # 3 trạng thái, 4 hành động chia tải
+        self.q_agent = QAgent(n_states=3, n_actions=4)  # 3 trạng thái, 4 hành động tối ưu queue
         self.q_last_state = None
         self.q_last_action = None
-        
+        self.q_last_port = None
+        self.q_last_qid = None
+
         self.static_arp_table = {
             "10.0.100.2": self.CLOUD_MAC,
             "10.0.200.2": self.CLOUD_MAC,
@@ -77,21 +135,33 @@ class AntiLoopController(app_manager.RyuApp):
 
         # --- DEFAULT ROUTING TABLE ---
         self.routing_table = {
-            256: { "10.0.100": 1, "10.0.200": 1, "10.0.1": 2, "10.0.2": 3, "10.0.3": 4, "10.0.4": 5 },
+            # G1 (Switch 256)
+            256: { 
+                "10.0.100": 1, "10.0.200": 1, 
+                "10.0.1": 2, "10.0.2": 3, "10.0.3": 4, "10.0.4": 5
+            },
+            # G2 (Switch 512)
             512: { "10.0.3": 2, "default": 1 },
-            768: { "10.0.4": 2, "10.0.100": 1, "10.0.200": 3, "default": 1 }
+            # G3 (Switch 768)
+            768: { 
+                "10.0.4": 2,
+                "10.0.100": 1, # Default via G1
+                "10.0.200": 3, # Direct
+                "default": 1 
+            }
         }
         self.print_routing_table_pretty()
 
-        # Khởi động thread giám sát + điều khiển Q-Learning
-        self.monitor_thread = hub.spawn(self._monitor_and_control)
+        self.monitor_thread = hub.spawn(self._monitor)
 
+    # --- FEATURE 1: PRETTY PRINT ROUTING TABLE ---
     def print_routing_table_pretty(self):
         print(f"\n{Colors.BLUE}{'='*60}")
         print(f"{'CURRENT ROUTING TABLE (Static)':^60}")
         print(f"{'='*60}{Colors.RESET}")
         print(f"{'Switch ID':<15} | {'Dest Subnet/IP':<15} | {'Output Port':<10}")
         print("-" * 46)
+        
         for dpid, routes in self.routing_table.items():
             first = True
             for dest, port in routes.items():
@@ -101,8 +171,8 @@ class AntiLoopController(app_manager.RyuApp):
             print("-" * 46)
         print("\n")
 
-    # --- MONITOR & Q-LEARNING CONTROL THREAD ---
-    def _monitor_and_control(self):
+    # --- FEATURE 2: MONITOR & CONGESTION WARNING + Q-LEARNING ---
+    def _monitor(self):
         while True:
             for dp in list(self.datapaths.values()):
                 if dp.id in [256, 768]:
@@ -113,6 +183,8 @@ class AntiLoopController(app_manager.RyuApp):
     def _request_stats(self, datapath):
         parser = datapath.ofproto_parser
         req = parser.OFPPortStatsRequest(datapath, 0, datapath.ofproto.OFPP_ANY)
+        datapath.send_msg(req)
+        req = parser.OFPQueueStatsRequest(datapath, 0, datapath.ofproto.OFPP_ANY, datapath.ofproto.OFPQ_ALL)
         datapath.send_msg(req)
 
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
@@ -131,160 +203,172 @@ class AntiLoopController(app_manager.RyuApp):
             if key in self.prev_stats:
                 prev_rx, prev_tx, prev_time = self.prev_stats[key]
                 duration = time.time() - prev_time
-                if duration > 1:
+                if duration > 0:
                     speed_tx = (tx_bytes - prev_tx) / duration
                     speed_rx = (rx_bytes - prev_rx) / duration
                     total_speed = speed_tx + speed_rx
                     
                     self.q_port_load[key] = total_speed
-
-                    if dpid == SW256_DPID and (port_no == CLOUD_PORT_MAIN or port_no == CLOUD_PORT_BACKUP):
-                        print(f"{Colors.YELLOW}[STATS-DEBUG] SW{dpid} P{port_no}: {total_speed/1e6:.3f} MB/s (State: {self.q_agent.get_best_action(self.q_last_state) if self.q_last_state is not None else 'N/A'}){Colors.RESET}")
-                        
-                    if total_speed > CONGESTION_THRESHOLD:
-                        print(f"{Colors.RED}[!] CONGESTION: SW{dpid} Port {port_no} | {total_speed/1e6:.2f} MB/s{Colors.RESET}")
+                    
+                    # RED ALERT LOGIC
+                    if speed_tx > CONGESTION_THRESHOLD or speed_rx > CONGESTION_THRESHOLD:
+                        max_speed = max(speed_tx, speed_rx) / 1000000
+                        print(f"{Colors.RED}[!] CONGESTION ALERT: Switch {dpid} Port {port_no} | Load: {max_speed:.2f} MB/s{Colors.RESET}")
             
-            # Luôn cập nhật trạng thái thống kê hiện tại            
             self.prev_stats[key] = (rx_bytes, tx_bytes, time.time())
 
-    # ================= CƠ CHẾ GROUP SELECT CHO LOAD BALANCING =================
-    def _install_lb_group(self, w1, w5):
-        """
-        Cài đặt (ADD) hoặc Sửa đổi (MODIFY) Group Select ID 100 trên SW256
-        để chia tải theo tỷ lệ w1:w5.
-        """
-        dpid = SW256_DPID
-        if dpid not in self.datapaths:
-            self.logger.warning(f"[GROUP] SW{dpid} not connected.")
-            return
-
-        dp = self.datapaths[dpid]
-        ofp = dp.ofproto
-        parser = dp.ofproto_parser
-        gid = GROUP_ID
-
-        buckets = []
-        if w1 > 0:
-            buckets.append(parser.OFPBucket(
-                weight=w1, 
-                watch_port=CLOUD_PORT_MAIN,
-                actions=[parser.OFPActionOutput(CLOUD_PORT_MAIN)]
-            ))
+    @set_ev_cls(ofp_event.EventOFPQueueStatsReply, MAIN_DISPATCHER)
+    def _queue_stats_reply_handler(self, ev):
+        body = ev.msg.body
+        dpid = ev.msg.datapath.id
         
-        if w5 > 0:
-            buckets.append(parser.OFPBucket(
-                weight=w5, 
-                watch_port=CLOUD_PORT_BACKUP,
-                actions=[parser.OFPActionOutput(CLOUD_PORT_BACKUP)]
-            ))
-        
-        # Dùng ADD nếu mới, MODIFY nếu đã tồn tại.
-        cmd = ofp.OFPGC_ADD if gid not in self.groups_installed else ofp.OFPGC_MODIFY
-        
-        dp.send_msg(parser.OFPGroupMod(
-            datapath=dp, 
-            command=cmd, 
-            type_=ofp.OFPGT_SELECT, 
-            group_id=gid, 
-            buckets=buckets))
+        for stat in sorted(body, key=attrgetter('port_no', 'queue_id')):
+            port_no = stat.port_no
+            if port_no > 100: continue
+            queue_id = stat.queue_id
+            tx_bytes = stat.tx_bytes
+            tx_errors = stat.tx_errors
             
-        self.groups_installed.add(gid)
+            key = (dpid, port_no, queue_id)
+            if key in self.prev_queue_stats:
+                prev_tx_bytes, prev_tx_errors, prev_time = self.prev_queue_stats[key]
+                duration = time.time() - prev_time
+                if duration > 1:
+                    speed = (tx_bytes - prev_tx_bytes) / duration
+                    drops = tx_errors - prev_tx_errors
+                    
+                    self.q_port_load[key] = speed
+                    self.q_drops[key] = drops
+                    
+                    if drops > 0:
+                        print(f"{Colors.RED}[DROP] SW{dpid} P{port_no} Q{queue_id}: {drops} drops{Colors.RESET}")
+            
+            self.prev_queue_stats[key] = (tx_bytes, tx_errors, time.time())
 
-        # Cài Flow chỉ định Group sau khi Group được tạo
-        if cmd == ofp.OFPGC_ADD:
-            self._install_cloud_flow(dp)
-        
-        self.logger.info(f"{Colors.GREEN}[QL-APPLY] Group ID {gid} {cmd == ofp.OFPGC_ADD and 'ADDED' or 'MODIFIED'}. Split P{CLOUD_PORT_MAIN}={w1}% P{CLOUD_PORT_BACKUP}={w5}%{Colors.RESET}")
-        
-    def _install_cloud_flow(self, dp):
+    # ================= CƠ CHẾ QUEUE OPTIMIZATION CHO CLOUD TRAFFIC =================
+    def _setup_queues(self, dp):
         """
-        Cài đặt Flow tĩnh (Prio 50) để chuyển tiếp traffic Cloud sang Group ID 100.
-        (Thay thế hàm apply_dynamic_cloud_route cũ)
+        Cài đặt các queue trên Port 1 (main) với các mức rate khác nhau và queue trên Port 5 (backup).
         """
         parser = dp.ofproto_parser
         
-        # Flow cho 10.0.100.0/24 và 10.0.200.0/24
+        # Queues cho Port Main (1)
+        queues = []
+        rates = [0xffff, 700, 500, 300]  # unlimited, 70%, 50%, 30%
+        for qid, rate in enumerate(rates):
+            props = [parser.OFPQueuePropMaxRate(rate=rate)]
+            queues.append(parser.OFPPacketQueue(queue_id=qid, port_no=CLOUD_PORT_MAIN, properties=props, length=0))
+        mod = parser.OFPQueueMod(dp, CLOUD_PORT_MAIN, queues)
+        dp.send_msg(mod)
+        
+        # Queue cho Port Backup (5)
+        queues = []
+        props = [parser.OFPQueuePropMaxRate(rate=0xffff)]
+        queues.append(parser.OFPPacketQueue(queue_id=0, port_no=CLOUD_PORT_BACKUP, properties=props, length=0))
+        mod = parser.OFPQueueMod(dp, CLOUD_PORT_BACKUP, queues)
+        dp.send_msg(mod)
+        
+        self.logger.info(f"{Colors.GREEN}[QUEUE] Queues installed on SW{dp.id} Ports {CLOUD_PORT_MAIN} & {CLOUD_PORT_BACKUP}.{Colors.RESET}")
+
+    def _update_cloud_flow(self, dp, out_port, qid):
+        """
+        Xóa flow cũ và cài đặt flow mới cho traffic Cloud với queue tối ưu.
+        """
+        parser = dp.ofproto_parser
+        ofp = dp.ofproto
+        
+        # Xóa flow cũ (priority 50)
+        for subnet in ["10.0.100.0/24", "10.0.200.0/24"]:
+            match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=subnet)
+            mod = parser.OFPFlowMod(
+                datapath=dp, 
+                command=ofp.OFPFC_DELETE, 
+                out_port=ofp.OFPP_ANY, 
+                out_group=ofp.OFPG_ANY, 
+                priority=50, 
+                match=match
+            )
+            dp.send_msg(mod)
+        
+        # Cài flow mới
         for subnet in ["10.0.100.0/24", "10.0.200.0/24"]:
             match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=subnet)
             actions = [
                 parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
                 parser.OFPActionSetField(eth_dst=self.CLOUD_MAC),
-                parser.OFPActionGroup(GROUP_ID) # Hành động: chuyển sang Group 100
             ]
-            self.add_flow(dp, 50, match, actions) 
-            
-        self.logger.info(f"{Colors.GREEN}[QL-APPLY] Cloud Egress Flow installed/updated to use Group {GROUP_ID}.{Colors.RESET}")
+            if qid is not None:
+                actions.append(parser.OFPActionSetQueue(qid))
+            actions.append(parser.OFPActionOutput(out_port))
+            self.add_flow(dp, 50, match, actions)
+        
+        rate_str = 'unlimited' if ACTION_MAP[self.q_last_action][2] == 0xffff else f'{ACTION_MAP[self.q_last_action][2]/10}%'
+        self.logger.info(f"{Colors.GREEN}[QL-APPLY] Cloud Egress Flow updated: Port {out_port}, Queue {qid if qid is not None else 'default'}, Rate {rate_str}.{Colors.RESET}")
 
-
-    # --- Q-LEARNING CONTROL: TỰ ĐỘNG TỐI ƯU LOAD BALANCING ---
+    # --- Q-LEARNING CONTROL: TỰ ĐỘNG TỐI ƯU QUEUE ĐỂ GIẢM MẤT GÓI ---
     def run_qlearning_control(self):
         dpid = SW256_DPID
         if dpid not in self.datapaths:
             return
 
-        load_p1 = self.q_port_load.get((dpid, CLOUD_PORT_MAIN), 0)
-        load_p5 = self.q_port_load.get((dpid, CLOUD_PORT_BACKUP), 0)
-        total_load = load_p1 + load_p5
+        dp = self.datapaths[dpid]
+        current_port = self.q_last_port if self.q_last_port else CLOUD_PORT_MAIN
+        current_qid = self.q_last_qid if self.q_last_qid is not None else 0
+        load = self.q_port_load.get((dpid, current_port, current_qid), 0)
+        drops = self.q_drops.get((dpid, current_port, current_qid), 0)
 
-        # 1. Xác định state (Dùng ngưỡng tối ưu)
-        if total_load < CONGESTION_THRESHOLD * 0.5:
-            state = 0  # Low (< 2MB/s)
-        elif total_load < CONGESTION_THRESHOLD * 1.1:
-            state = 1  # Medium (2MB/s - 4.4MB/s)
+        # 1. Xác định state (Ưu tiên drops để tránh mất gói)
+        if drops > 0:
+            state = 2  # High (có mất gói)
+        elif load < CONGESTION_THRESHOLD * 0.5:
+            state = 0  # Low
         else:
-            state = 2  # High (>= 4.4MB/s)
+            state = 1  # Medium
 
         # 2. Agent chọn hành động (Action là index từ 0-3)
         action = self.q_agent.choose_action(state)
-        w1, w5 = ACTION_MAP[action] # Lấy tỷ lệ chia tải
-        
-        # 3. Tính reward (Tối ưu hóa để giảm Loss, tăng ổn định và cân bằng)
-        max_load = max(load_p1, load_p5)
-        imbalance = abs(load_p1 - load_p5) / (total_load + 1e-6) # Độ mất cân bằng
-        
-        # Thưởng/Phạt cơ bản dựa trên tải tối đa (Max Load)
-        if max_load > CONGESTION_THRESHOLD:
-            reward = -50  # Phạt nặng vì quá tải là nguyên nhân chính gây mất gói
-        elif max_load < CONGESTION_THRESHOLD * 0.5:
-            reward = 30   # Rất tốt: Load thấp hơn 50% ngưỡng
-        elif max_load < CONGESTION_THRESHOLD:
-            reward = 10   # Tốt: Load chấp nhận được
-        else:
-            reward = -5   # Load vừa chạm ngưỡng (cảnh báo)
+        new_port, new_qid, rate = ACTION_MAP[action]
 
-        # Thưởng cho sự ổn định và cân bằng
+        # 3. Tính reward (Tập trung giảm drops, thưởng throughput cao nếu không drops)
+        if drops > 0:
+            reward = -50  # Phạt nặng vì mất gói
+        else:
+            reward = 30 if load < CONGESTION_THRESHOLD * 0.5 else 10  # Thưởng nếu không drops
+            reward += (load / (CONGESTION_THRESHOLD + 1e-6)) * 5  # Thưởng thêm cho throughput cao
+
+        # Thưởng cho sự ổn định
         if self.q_last_action is not None and action == self.q_last_action:
-            reward += 5 # Thưởng thêm nếu Agent quyết định giữ nguyên Action (chống dao động)
-            
-        # Thưởng cho cân bằng tải (Chỉ quan trọng khi tải > 0)
-        if total_load > 1e6: # Nếu có tải đáng kể (1MB/s)
-            reward += (5 * (1 - imbalance)) # Thưởng tối đa 5 điểm nếu cân bằng hoàn hảo
+            reward += 5
         
-        if state == 0 and total_load > 0.5e6: # Nếu tải thấp nhưng có traffic
-             if action == 2: # Hành động 50:50
-                 reward += 3 # Thưởng nhẹ vì chia tải là hành động an toàn nhất
-             elif action == 0 or action == 3: # Hành động 100:0 hoặc 0:100 (rủi ro cao hơn)
-                 reward -= 2 # Phạt nhẹ vì chọn đường đơn khi có 2 đường khỏe
+        # Phạt nhẹ nếu dùng backup mà không cần thiết
+        if action == 3 and state != 2:
+            reward -= 3
 
         # 4. Học
         if self.q_last_state is not None:
             self.q_agent.learn(self.q_last_state, self.q_last_action, reward, state)
 
-        # 5. Áp dụng Action (Group Mod)
-        if self.q_last_action is None or action != self.q_last_action or GROUP_ID not in self.groups_installed:
-            self._install_lb_group(w1, w5)
+        # 5. Áp dụng Action nếu thay đổi (Update flow)
+        if self.q_last_action is None or action != self.q_last_action:
+            self._update_cloud_flow(dp, new_port, new_qid)
+            self.q_last_port = new_port
+            self.q_last_qid = new_qid
 
         # In thông tin
         self.q_agent.print_q_table()
-        print(f"{Colors.BLUE}[QL-STATUS] State:{state} → Action:{action} ({w1}:{w5}) | "
-              f"P1:{load_p1/1e6:.2f}MB/s P5:{load_p5/1e6:.2f}MB/s | "
+        rate_str = 'unlimited' if rate == 0xffff else f'{rate/10}%'
+        print(f"{Colors.BLUE}[QL-STATUS] State:{state} → Action:{action} (P{new_port} Q{new_qid if new_qid is not None else 'def'} {rate_str}) | "
+              f"Load:{load/1e6:.2f}MB/s Drops:{drops} | "
               f"Reward:{reward:+.1f} ε:{self.q_agent.epsilon:.3f}{Colors.RESET}\n")
 
         self.q_last_state = state
         self.q_last_action = action
+        self.q_agent.log_step(state, action, reward, load, drops)
 
+        if int(time.time()) % 30 == 0:
+            self.q_agent.export_q_table()
 
-    # --- REST API: THAY ĐỔI ROUTE THỦ CÔNG (override Q-Learning) ---
+    # --- FEATURE 3: API & PRE/POST FLOW LOGGING ---
     def change_route(self, dpid, destination_ip, new_port):
         if dpid not in self.datapaths: return False
         
@@ -292,26 +376,39 @@ class AntiLoopController(app_manager.RyuApp):
         if destination_ip.startswith("10.0.100.") or destination_ip.startswith("10.0.200."):
              self.logger.warning(f"Manual change for {destination_ip} ignored: Q-Learning manages Cloud routing.")
              return False
-             
+        
         datapath = self.datapaths[dpid]
         parser = datapath.ofproto_parser
         
-        dst_mac = self.static_arp_table.get(destination_ip) or self.CLOUD_MAC
-        
-        print(f"\n{Colors.YELLOW}--- [MANUAL ROUTE CHANGE] ---{Colors.RESET}")
-        print(f"Switch: {dpid} | Dest: {destination_ip} → Port {new_port}")
+        # 1. Determine destination MAC
+        dst_mac = self.static_arp_table.get(destination_ip)
+        if not dst_mac and ("10.0.100" in destination_ip or "10.0.200" in destination_ip): 
+            dst_mac = self.CLOUD_MAC
+        if not dst_mac: return False
 
+        # 2. Log "BEFORE" (Current State)
+        # Note: Controller doesn't store old flows in RAM, we log the intent of change
+        print(f"\n{Colors.YELLOW}--- [COMMAND RECEIVED] MODIFY FLOW ---{Colors.RESET}")
+        print(f"Target Switch : {dpid}")
+        print(f"Destination   : {destination_ip}")
+        print(f"Old Action    : (Check Routing Table above)")
+        print(f"{Colors.GREEN}New Action    : OUTPUT PORT {new_port}{Colors.RESET}")
+
+        # 3. Install New Flow (Action)
         match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=destination_ip)
         actions = [
             parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
-            parser.OFPActionSetField(eth_dst=dst_mac),
+            parser.OFPActionSetField(eth_dst=dst_mac), 
             parser.OFPActionOutput(new_port)
         ]
-        self.add_flow(datapath, 100, match, actions)  # Priority cao nhất
-        print(f"{Colors.BLUE}--> Manual flow installed.{Colors.RESET}\n")
+        
+        # Priority 100 to override default flow
+        self.add_flow(datapath, 100, match, actions)
+        
+        print(f"{Colors.BLUE}--> Flow sent to switch successfully.{Colors.RESET}\n")
         return True
 
-    # --- CÁC HÀM CƠ BẢN (KHÔNG THAY ĐỔI) ---
+    # --- BASIC FUNCTIONS (KEPT AS IS) ---
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
@@ -321,6 +418,10 @@ class AntiLoopController(app_manager.RyuApp):
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
         self.add_flow(datapath, 0, match, actions)
+        
+        if datapath.id == SW256_DPID:
+            self._setup_queues(datapath)
+            self._update_cloud_flow(datapath, CLOUD_PORT_MAIN, 0)  # Initial: Port 1, Queue 0
 
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         ofproto = datapath.ofproto
@@ -339,17 +440,17 @@ class AntiLoopController(app_manager.RyuApp):
 
         if eth.ethertype == ether_types.ETH_TYPE_LLDP: return
         
+        # Handle ARP
         if eth.ethertype == ether_types.ETH_TYPE_ARP:
             arp_pkt = pkt.get_protocols(arp.arp)[0]
             if arp_pkt.opcode == arp.ARP_REQUEST:
                 if arp_pkt.dst_ip.endswith('.254') or arp_pkt.dst_ip.endswith('.1'):
                     self.send_arp_reply(datapath, in_port, arp_pkt.src_mac, self.GATEWAY_MAC, arp_pkt.dst_ip, arp_pkt.src_ip)
-                else:
-                    self.do_flood(datapath, msg, in_port)
-            else:
-                self.do_flood(datapath, msg, in_port)
+                else: self.do_flood(datapath, msg, in_port)
+            else: self.do_flood(datapath, msg, in_port)
             return
 
+        # Handle IP Routing
         if eth.ethertype == ether_types.ETH_TYPE_IP:
             ip_pkt = pkt.get_protocols(ipv4.ipv4)[0]
             self.handle_ip_routing(datapath, in_port, ip_pkt, msg)
@@ -358,50 +459,75 @@ class AntiLoopController(app_manager.RyuApp):
         dpid = datapath.id
         dst_ip = ip_pkt.dst
         
-        subnet_key = ".".join(dst_ip.split('.')[:3])
-        routing_table = self.routing_table.get(dpid, {})
-        out_port = routing_table.get(subnet_key) or routing_table.get("default")
-        
-        if not out_port:
-            self.do_flood(datapath, msg, in_port)
-            return
+        if dpid in self.routing_table:
+            subnet_key = ".".join(dst_ip.split('.')[:3])
+            routing_table = self.routing_table.get(dpid, {})
+            out_port = routing_table.get(subnet_key)
+            if not out_port: out_port = routing_table.get("default")
+            
+            if out_port:
+                dst_mac = self.static_arp_table.get(dst_ip)
+                if not dst_mac and ("10.0.100" in dst_ip or "10.0.200" in dst_ip): dst_mac = self.CLOUD_MAC
 
-        dst_mac = self.static_arp_table.get(dst_ip) or self.CLOUD_MAC
+                if dst_mac:
+                    parser = datapath.ofproto_parser
+                    actions = []
+                    # Default Failover Logic (Priority 10)
+                    if dpid == 256 and ("10.0.100" in dst_ip): # G1
+                        group_id = 50
+                        if dpid not in self.groups_installed:
+                            self.add_failover_group(datapath, group_id, 1, 5)
+                            self.groups_installed[dpid] = True
+                        actions = [parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
+                                   parser.OFPActionSetField(eth_dst=dst_mac),
+                                   parser.OFPActionGroup(group_id)]
+                    elif dpid == 768 and ("10.0.200" in dst_ip): # G3
+                        group_id = 51
+                        if dpid not in self.groups_installed:
+                            self.add_failover_group(datapath, group_id, 3, 1)
+                            self.groups_installed[dpid] = True
+                        actions = [parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
+                                   parser.OFPActionSetField(eth_dst=dst_mac),
+                                   parser.OFPActionGroup(group_id)]
+                    else:
+                        actions = [parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
+                                   parser.OFPActionSetField(eth_dst=dst_mac),
+                                   parser.OFPActionOutput(out_port)]
+                    
+                    match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=dst_ip)
+                    self.add_flow(datapath, 10, match, actions)
+                    
+                    data = msg.data if msg.buffer_id == datapath.ofproto.OFP_NO_BUFFER else None
+                    out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id, in_port=in_port, actions=actions, data=data)
+                    datapath.send_msg(out)
+                else: self.do_flood(datapath, msg, in_port)
+            else: self.do_flood(datapath, msg, in_port)
+        else: self.do_flood(datapath, msg, in_port)
 
+    def add_failover_group(self, datapath, group_id, main_port, backup_port):
+        ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-        actions = [
-            parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
-            parser.OFPActionSetField(eth_dst=dst_mac),
-            parser.OFPActionOutput(out_port)
-        ]
-
-        match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=dst_ip)
-        self.add_flow(datapath, 10, match, actions)
-
-        data = msg.data if msg.buffer_id == datapath.ofproto.OFP_NO_BUFFER else None
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                  in_port=in_port, actions=actions, data=data)
-        datapath.send_msg(out)
+        actions_main = [parser.OFPActionOutput(main_port)]
+        bucket_main = parser.OFPBucket(watch_port=main_port, watch_group=ofproto.OFPG_ANY, actions=actions_main)
+        actions_backup = [parser.OFPActionOutput(backup_port)]
+        bucket_backup = parser.OFPBucket(watch_port=backup_port, watch_group=ofproto.OFPG_ANY, actions=actions_backup)
+        req = parser.OFPGroupMod(datapath, ofproto.OFPGC_ADD, ofproto.OFPGT_FF, group_id, [bucket_main, bucket_backup])
+        datapath.send_msg(req)
+        self.logger.info(f"Failover Group {group_id} added on SW {datapath.id}")
 
     def send_arp_reply(self, datapath, port, dst_mac, src_mac, src_ip, dst_ip):
+        ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         pkt = packet.Packet()
-        pkt.add_protocol(ethernet.ethernet(ethertype=ether_types.ETH_TYPE_ARP,
-                                           dst=dst_mac, src=src_mac))
-        pkt.add_protocol(arp.arp(opcode=arp.ARP_REPLY, src_mac=src_mac, src_ip=src_ip,
-                                 dst_mac=dst_mac, dst_ip=dst_ip))
+        pkt.add_protocol(ethernet.ethernet(ethertype=ether_types.ETH_TYPE_ARP, dst=dst_mac, src=src_mac))
+        pkt.add_protocol(arp.arp(opcode=arp.ARP_REPLY, src_mac=src_mac, src_ip=src_ip, dst_mac=dst_mac, dst_ip=dst_ip))
         pkt.serialize()
         actions = [parser.OFPActionOutput(port)]
-        datapath.send_msg(parser.OFPPacketOut(datapath=datapath, buffer_id=datapath.ofproto.OFP_NO_BUFFER,
-                                             in_port=datapath.ofproto.OFPP_CONTROLLER,
-                                             actions=actions, data=pkt.data))
+        datapath.send_msg(parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=pkt.data))
 
     def do_flood(self, datapath, msg, in_port):
         actions = [datapath.ofproto_parser.OFPActionOutput(datapath.ofproto.OFPP_FLOOD)]
-        datapath.send_msg(datapath.ofproto_parser.OFPPacketOut(
-            datapath=datapath, buffer_id=msg.buffer_id, in_port=in_port,
-            actions=actions, data=msg.data))
-
+        datapath.send_msg(datapath.ofproto_parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id, in_port=in_port, actions=actions, data=msg.data))
 
 class RestRouterController(ControllerBase):
     def __init__(self, req, link, data, **config):
@@ -411,15 +537,7 @@ class RestRouterController(ControllerBase):
     @route('router', url, methods=['POST'], requirements={'dpid': '[0-9]+'})
     def set_route(self, req, **kwargs):
         dpid = int(kwargs['dpid'])
-        try:
-            body = req.json if req.body else {}
-        except ValueError:
-            return Response(status=400, body=b"Invalid JSON")
-        
-        dest = body.get('dest')
-        port = body.get('port')
-        if not dest or not port:
-            return Response(status=400, body=b"Missing dest or port")
-        
-        success = self.app.change_route(dpid, dest, int(port))
+        try: body = req.json if req.body else {}
+        except ValueError: return Response(status=400, body=b"Invalid JSON")
+        success = self.app.change_route(dpid, body.get('dest'), int(body.get('port')))
         return Response(status=200, body=b"Route Changed") if success else Response(status=404, body=b"Failed")
