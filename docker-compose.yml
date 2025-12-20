@@ -27,7 +27,6 @@ services:
       - sdn-net
     volumes:
       - ./shared:/shared
-      - ./logs:/logs
 
   analysis:
     build: ./analysis

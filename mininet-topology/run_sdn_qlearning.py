@@ -99,15 +99,15 @@ def run():
     cloud.cmd("sysctl -w net.ipv4.conf.cloud-eth0.rp_filter=0")
     cloud.cmd("sysctl -w net.ipv4.conf.cloud-eth1.rp_filter=0")
     
-    cloud.cmd("ip route add 10.0.0.0/16 via 10.0.100.1")
+    cloud.cmd("ip route replace 10.0.0.0/16 via 10.0.100.1")
 
     info("\n=== SDN L3 TOPOLOGY STARTED ===\n")
     time.sleep(2)
 
     # Start Services
     info("[*] Starting Services...\n")
-    cloud.cmd("PYTHONIOENCODING=utf-8 traffic-generator/python3 iot_server.py > server.log 2>&1 &")
-    cloud.cmd("iperf -s -u -p 5001 &") 
+    cloud.cmd("python3 traffic-generator/iot_server.py --bind 0.0.0.0 --out /shared/server/server.csv ...")
+    # cloud.cmd("iperf -s -u -p 5001 &") 
     
     sensors = {'h1': 'temp', 'h2': 'humid', 'h3': 'motion', 'h4': 'temp', 'h10': 'humid'}
     for h, t in sensors.items():
@@ -118,6 +118,7 @@ def run():
   f"--server 10.0.100.2 "
   f"--case sdn_qlearning "
   f"--out /shared/raw/sdn_qlearning_{h}.csv &"
+  f"> /shared/logs/{h}_sensor.log 2>&1 &"
 )
         info(f" -> {h} started sending {t}\n")
 

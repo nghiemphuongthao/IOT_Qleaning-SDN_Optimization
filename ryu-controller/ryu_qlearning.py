@@ -20,7 +20,7 @@ from q_agent import QAgent
 from model import QoSModel
 
 # --- CONFIGURATION ---
-CONGESTION_THRESHOLD = 4000000  # 4MB/s ~ 32Mbps (Warning Threshold)
+CONGESTION_THRESHOLD = 200000 
 MONITOR_INTERVAL = 2            # Monitor every 2 seconds
 
 SW256_DPID = 256
@@ -127,11 +127,16 @@ class AntiLoopController(app_manager.RyuApp):
     # --- FEATURE 2: MONITOR & CONGESTION WARNING + Q-LEARNING ---
     def _monitor(self):
         while True:
-            for dp in list(self.datapaths.values()):
-                if dp.id in [256, 768]:
-                    self._request_stats(dp)
-            self.run_qlearning_control()
+            try:    
+                for dp in list(self.datapaths.values()):
+                    if dp.id in [256, 768]:
+                        self._request_stats(dp)
+                hub.sleep(0.3)
+                self.run_qlearning_control()
+            except Exception: 
+                self.logger.exception("[MONITOR] recover")
             hub.sleep(MONITOR_INTERVAL)
+
 
     def _request_stats(self, datapath):
         parser = datapath.ofproto_parser
@@ -200,70 +205,81 @@ class AntiLoopController(app_manager.RyuApp):
 
     # ================= CƠ CHẾ QUEUE OPTIMIZATION CHO CLOUD TRAFFIC =================
     def _setup_queues(self, dp):
-        """
-        Cài đặt các queue trên Port 1 (main) với các mức rate khác nhau và queue trên Port 5 (backup).
-        """
         parser = dp.ofproto_parser
-        
+
+        try:
         # Queues cho Port Main (1)
-        queues = []
-        rates = [0xffff, 700, 500, 300]  # unlimited, 70%, 50%, 30%
-        for qid, rate in enumerate(rates):
-            props = [parser.OFPQueuePropMaxRate(rate=rate)]
-            queues.append(parser.OFPPacketQueue(queue_id=qid, port_no=CLOUD_PORT_MAIN, properties=props, length=0))
-        mod = parser.OFPQueueMod(dp, CLOUD_PORT_MAIN, queues)
-        dp.send_msg(mod)
-        
-        # Queue cho Port Backup (5)
-        queues = []
-        props = [parser.OFPQueuePropMaxRate(rate=0xffff)]
-        queues.append(parser.OFPPacketQueue(queue_id=0, port_no=CLOUD_PORT_BACKUP, properties=props, length=0))
-        mod = parser.OFPQueueMod(dp, CLOUD_PORT_BACKUP, queues)
-        dp.send_msg(mod)
-        
-        self.logger.info(f"{Colors.GREEN}[QUEUE] Queues installed on SW{dp.id} Ports {CLOUD_PORT_MAIN} & {CLOUD_PORT_BACKUP}.{Colors.RESET}")
+            rates = [0xffff, 700, 500, 300]  # unlimited, 70%, 50%, 30%
+            queues_main = []
+            for qid, rate in enumerate(rates):
+            # Một số bản Ryu không có OFPQueuePropMaxRate -> fallback MinRate
+                if hasattr(parser, "OFPQueuePropMaxRate"):
+                    props = [parser.OFPQueuePropMaxRate(rate)]
+                else:
+                    props = [parser.OFPQueuePropMinRate(rate)]
+            # ✅ dùng positional args để tránh lỗi keyword
+                queues_main.append(parser.OFPPacketQueue(qid, props, 0))
+
+        # Nếu parser không có OFPQueueMod thì bỏ qua (OVS thường cấu hình queue qua ovs-vsctl)
+            if not hasattr(parser, "OFPQueueMod"):
+                self.logger.warning("[QUEUE] OFPQueueMod not supported by this Ryu/OVS. Skip queue install (configure via ovs-vsctl in Mininet).")
+                return
+
+            dp.send_msg(parser.OFPQueueMod(dp, CLOUD_PORT_MAIN, queues_main))
+
+        # Queue cho Port Backup (5) - chỉ 1 queue unlimited
+            if hasattr(parser, "OFPQueuePropMaxRate"):
+                props_b = [parser.OFPQueuePropMaxRate(0xffff)]
+            else:
+                props_b = [parser.OFPQueuePropMinRate(0xffff)]
+            queues_backup = [parser.OFPPacketQueue(0, props_b, 0)]
+
+            dp.send_msg(parser.OFPQueueMod(dp, CLOUD_PORT_BACKUP, queues_backup))
+
+            self.logger.info(f"{Colors.GREEN}[QUEUE] Queues installed on SW{dp.id} Ports {CLOUD_PORT_MAIN} & {CLOUD_PORT_BACKUP}.{Colors.RESET}")
+
+        except Exception:
+        # ✅ không làm chết app nếu queue setup lỗi
+            self.logger.exception("[QUEUE] setup failed; continue without queue config")
 
     def _update_cloud_flow(self, dp, out_port, qid):
-        """
-        Xóa flow cũ và cài đặt flow mới cho traffic Cloud với queue tối ưu.
-        """
-        parser = dp.ofproto_parser
-        ofp = dp.ofproto
+            parser = dp.ofproto_parser
+            ofp = dp.ofproto
         
         # Xóa flow cũ (priority 50)
-        for subnet in ["10.0.100.0/24", "10.0.200.0/24"]:
-            match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=subnet)
-            mod = parser.OFPFlowMod(
-                datapath=dp, 
-                command=ofp.OFPFC_DELETE, 
-                out_port=ofp.OFPP_ANY, 
-                out_group=ofp.OFPG_ANY, 
-                priority=50, 
-                match=match
-            )
-            dp.send_msg(mod)
+            for subnet in ["10.0.100.0/24", "10.0.200.0/24"]:
+                match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=subnet)
+                mod = parser.OFPFlowMod(
+                    datapath=dp, 
+                    command=ofp.OFPFC_DELETE, 
+                    out_port=ofp.OFPP_ANY, 
+                    out_group=ofp.OFPG_ANY, 
+                    priority=50, 
+                    match=match
+                )
+                dp.send_msg(mod)
         
         # Cài flow mới
-        for subnet in ["10.0.100.0/24", "10.0.200.0/24"]:
-            match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=subnet)
-            actions = [
-                parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
-                parser.OFPActionSetField(eth_dst=self.CLOUD_MAC),
-            ]
-            if qid is not None:
-                actions.append(parser.OFPActionSetQueue(qid))
-            actions.append(parser.OFPActionOutput(out_port))
-            self.add_flow(dp, 50, match, actions)
+            for subnet in ["10.0.100.0/24", "10.0.200.0/24"]:
+                match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=subnet)
+                actions = [
+                    parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
+                    parser.OFPActionSetField(eth_dst=self.CLOUD_MAC),
+                ]
+                if qid is not None:
+                    actions.append(parser.OFPActionSetQueue(qid))
+                actions.append(parser.OFPActionOutput(out_port))
+                self.add_flow(dp, 50, match, actions)
         
         # rate_str = 'unlimited' if ACTION_MAP[self.q_last_action][2] == 0xffff else f'{ACTION_MAP[self.q_last_action][2]/10}%'
-        if out_port == CLOUD_PORT_BACKUP:
-            rate_str = "unlimited"
-        else:
+            if out_port == CLOUD_PORT_BACKUP:
+                rate_str = "unlimited"
+            else:
     # mapping qid -> max_rate đúng theo _setup_queues()
-            qid_to_rate = {0: 0xffff, 1: 700, 2: 500, 3: 300}
-            rate = qid_to_rate.get(qid, 0xffff)
-            rate_str = "unlimited" if rate == 0xffff else f"{rate/10}%"
-            self.logger.info(f"{Colors.GREEN}[QL-APPLY] Cloud Egress Flow updated: Port {out_port}, Queue {qid if qid is not None else 'default'}, Rate {rate_str}.{Colors.RESET}")
+                qid_to_rate = {0: 0xffff, 1: 700, 2: 500, 3: 300}
+                rate = qid_to_rate.get(qid, 0xffff)
+                rate_str = "unlimited" if rate == 0xffff else f"{rate/10}%"
+                self.logger.info(f"{Colors.GREEN}[QL-APPLY] Cloud Egress Flow updated: Port {out_port}, Queue {qid if qid is not None else 'default'}, Rate {rate_str}.{Colors.RESET}")
 
     # --- Q-LEARNING CONTROL: TỰ ĐỘNG TỐI ƯU QUEUE ĐỂ GIẢM MẤT GÓI ---
     def run_qlearning_control(self):
@@ -274,8 +290,12 @@ class AntiLoopController(app_manager.RyuApp):
         dp = self.datapaths[dpid]
         current_port = self.q_last_port if self.q_last_port else CLOUD_PORT_MAIN
         current_qid = self.q_last_qid if self.q_last_qid is not None else 0
-        load = self.q_port_load.get((dpid, current_port, current_qid), 0)
+        load = self.q_port_load.get((dpid, current_port, current_qid))
+        if load is None:
+            load = self.q_port_load.get((dpid, current_port), 0)
         drops = self.q_drops.get((dpid, current_port, current_qid), 0)
+        self.logger.info(f"[QL-OBS] dpid={dpid} port={current_port} qid={current_qid} loadBps={load:.1f} drops={drops}")
+
 
         state = self.model.get_state(load_bps=load, drops=drops)
 

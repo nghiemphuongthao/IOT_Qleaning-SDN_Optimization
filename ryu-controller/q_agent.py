@@ -1,10 +1,14 @@
 import numpy as np
 import random
 import csv
-import time
+import time, os 
 
-LOG_PATH = "/app/shared/logs/qlearning_log.csv"
-QTABLE_PATH = "/app/shared/logs/qtable.csv"                                        
+LOG_DIR = os.environ.get("LOG_DIR", "/shared/logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+LOG_PATH = os.path.join(LOG_DIR, "qlearning_log.csv")
+QTABLE_PATH = os.path.join(LOG_DIR, "qtable.csv")
+                                     
 
 class QAgent:
     def __init__(self, n_states, n_actions,
@@ -28,28 +32,28 @@ class QAgent:
             return random.randint(0, self.n_actions - 1)
         return int(np.argmax(self.q_table[state]))
 
-def learn(self, s, a, r, s_next, load=0, drops=0):
-    self.step += 1
+    def learn(self, s, a, r, s_next, load=0, drops=0):
+        self.step += 1
 
-    predict = self.q_table[s][a]
-    target = r + self.gamma * np.max(self.q_table[s_next])
-    self.q_table[s][a] += self.lr * (target - predict)
+        predict = self.q_table[s][a]
+        target = r + self.gamma * np.max(self.q_table[s_next])
+        self.q_table[s][a] += self.lr * (target - predict)
 
-    max_q = np.max(self.q_table[s])
+        max_q = np.max(self.q_table[s])
 
     # epsilon decay
-    if self.epsilon > self.epsilon_min:
-        self.epsilon *= self.epsilon_decay
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
 
     # ==== LOG Q-LEARNING ====
-    self._log_internal(
-        state=s,
-        action=a,
-        reward=r,
-        load=load,
-        drops=drops,
-        max_q=max_q
-    )
+        self._log_internal(
+            state=s,
+            action=a,
+            reward=r,
+            load=load,
+            drops=drops,
+            max_q=max_q
+        )
 
 
     # ===== LOG CHO ĐỒ ÁN =====

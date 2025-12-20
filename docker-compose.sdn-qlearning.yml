@@ -12,7 +12,6 @@ services:
       - sdn-net
     volumes:
       - ./shared:/shared
-      - ./logs:/logs
 
   ryu-controller:
     build: ./ryu-controller
@@ -25,7 +24,6 @@ services:
       - sdn-net
     volumes:
       - ./shared:/shared
-      - ./logs:/logs 
 
 networks:
   sdn-net:
