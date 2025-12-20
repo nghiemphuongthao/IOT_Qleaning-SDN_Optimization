@@ -19,6 +19,8 @@ class QAgent:
         self.epsilon_min = epsilon_min
         self.epsilon_decay = epsilon_decay
 
+        self.step = 0
+
         self.q_table = np.zeros((n_states, n_actions))
 
     def choose_action(self, state):
@@ -26,27 +28,58 @@ class QAgent:
             return random.randint(0, self.n_actions - 1)
         return int(np.argmax(self.q_table[state]))
 
-    def learn(self, s, a, r, s_next):
-        predict = self.q_table[s][a]
-        target = r + self.gamma * np.max(self.q_table[s_next])
-        self.q_table[s][a] += self.lr * (target - predict)
+def learn(self, s, a, r, s_next, load=0, drops=0):
+    self.step += 1
 
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+    predict = self.q_table[s][a]
+    target = r + self.gamma * np.max(self.q_table[s_next])
+    self.q_table[s][a] += self.lr * (target - predict)
+
+    max_q = np.max(self.q_table[s])
+
+    # epsilon decay
+    if self.epsilon > self.epsilon_min:
+        self.epsilon *= self.epsilon_decay
+
+    # ==== LOG Q-LEARNING ====
+    self._log_internal(
+        state=s,
+        action=a,
+        reward=r,
+        load=load,
+        drops=drops,
+        max_q=max_q
+    )
+
 
     # ===== LOG CHO ĐỒ ÁN =====
-    def log_step(self, state, action, reward, load, drops):
+    def _log_internal(self, state, action, reward, load, drops, max_q):
         with open(LOG_PATH, "a", newline="") as f:
             writer = csv.writer(f)
             if f.tell() == 0:
                 writer.writerow([
-                    "time", "state", "action",
-                    "reward", "load", "drops", "epsilon"
+                    "time",
+                    "step",
+                    "state",
+                    "action",
+                    "reward",
+                    "load",
+                    "drops",
+                    "epsilon",
+                    "max_q"
                 ])
             writer.writerow([
-                time.time(), state, action,
-                reward, load, drops, self.epsilon
+                time.time(),
+                self.step,
+                state,
+                action,
+                round(reward, 3),
+                load,
+                drops,
+                round(self.epsilon, 3),
+                round(max_q, 3)
             ])
+
 
     def export_q_table(self, filename="qtable.csv"):
         with open(QTABLE_PATH, "w", newline="") as f:

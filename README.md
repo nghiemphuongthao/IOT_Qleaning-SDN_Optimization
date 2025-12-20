@@ -13,3 +13,7 @@ Run:
 Analysis:
 python3 analysis/collect_metrics.py
 python3 analysis/compare_cases.py
+
+
+
+cách mở xterm: xhost +si:localuser:root

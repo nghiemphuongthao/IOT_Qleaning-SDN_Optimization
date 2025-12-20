@@ -16,20 +16,23 @@ import random
 import csv
 import os
 
-# --- CẤU HÌNH QUEUE OPTIMIZATION VÀ OFP ---
-ACTION_MAP = {
-    0: (1, 0, 0xffff),    # Port 1, Queue 0: unlimited
-    1: (1, 1, 700),       # Port 1, Queue 1: 70%
-    2: (1, 2, 500),       # Port 1, Queue 2: 50%
-    3: (5, 0, 0xffff)     # Port 5, Queue 0: unlimited (backup)
-}
-SW256_DPID = 256
-CLOUD_PORT_MAIN = 1
-CLOUD_PORT_BACKUP = 5
+from q_agent import QAgent
+from model import QoSModel
 
 # --- CONFIGURATION ---
 CONGESTION_THRESHOLD = 4000000  # 4MB/s ~ 32Mbps (Warning Threshold)
 MONITOR_INTERVAL = 2            # Monitor every 2 seconds
+
+SW256_DPID = 256
+CLOUD_PORT_MAIN = 1
+CLOUD_PORT_BACKUP = 5
+
+ACTION_MAP = {
+    0: (CLOUD_PORT_MAIN, 0, 0xffff),
+    1: (CLOUD_PORT_MAIN, 1, 700),
+    2: (CLOUD_PORT_MAIN, 2, 500),
+    3: (CLOUD_PORT_BACKUP, 0, 0xffff),
+}
 
 simple_switch_instance_name = 'simple_switch_api_app'
 url = '/router/{dpid}'
@@ -41,59 +44,6 @@ class Colors:
     YELLOW = '\033[93m'
     BLUE = '\033[94m'
     RESET = '\033[0m'
-
-# Định nghĩa class QAgent
-class QAgent:
-    def __init__(self, n_states, n_actions, alpha=0.1, gamma=0.9, epsilon=1.0, epsilon_min=0.01, epsilon_decay=0.995, log_dir='logs'):
-        self.n_states = n_states
-        self.n_actions = n_actions
-        self.alpha = alpha
-        self.gamma = gamma
-        self.epsilon = epsilon
-        self.epsilon_min = epsilon_min
-        self.epsilon_decay = epsilon_decay
-        self.q_table = np.zeros((n_states, n_actions))  # Q-table là numpy array
-        self.log_dir = log_dir
-        os.makedirs(self.log_dir, exist_ok=True)
-        self.log_file = os.path.join(self.log_dir, 'qlearning_log.csv')
-        self._init_log()
-
-    def _init_log(self):
-        with open(self.log_file, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['timestamp', 'state', 'action', 'reward', 'load_mb_s', 'drops', 'epsilon', 'q_values'])
-
-    def choose_action(self, state):
-        if random.uniform(0, 1) < self.epsilon:
-            return random.randint(0, self.n_actions - 1)  # Explore
-        else:
-            return np.argmax(self.q_table[state])  # Exploit
-
-    def learn(self, state, action, reward, next_state):
-        predict = self.q_table[state, action]
-        target = reward + self.gamma * np.max(self.q_table[next_state])
-        self.q_table[state, action] += self.alpha * (target - predict)
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-
-    def get_best_action(self, state):
-        return np.argmax(self.q_table[state])
-
-    def print_q_table(self):
-        print("Q-Table:")
-        for i in range(self.n_states):
-            print(f"State {i}: {self.q_table[i]}")
-
-    def log_step(self, state, action, reward, load, drops):
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        q_values = ','.join(map(str, self.q_table[state]))
-        with open(self.log_file, 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([timestamp, state, action, reward, load / 1e6, drops, self.epsilon, q_values])
-
-    def export_q_table(self, file_name='qtable.csv'):
-        export_path = os.path.join(self.log_dir, file_name)
-        np.savetxt(export_path, self.q_table, delimiter=',', header=','.join([f'Action {i}' for i in range(self.n_actions)]), comments='')
-        print(f"{Colors.GREEN}[EXPORT] Q-table exported to {export_path}{Colors.RESET}")
 
 class AntiLoopController(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -117,7 +67,10 @@ class AntiLoopController(app_manager.RyuApp):
         self.q_drops = {}          # Lưu drops cho Q-Learning
 
         # Biến Q-Learning
-        self.q_agent = QAgent(n_states=3, n_actions=4)  # 3 trạng thái, 4 hành động tối ưu queue
+        self.model = QoSModel(congestion_threshold=CONGESTION_THRESHOLD)
+
+        self.q_agent = QAgent(n_states=3, n_actions=4)
+
         self.q_last_state = None
         self.q_last_action = None
         self.q_last_port = None
@@ -302,8 +255,15 @@ class AntiLoopController(app_manager.RyuApp):
             actions.append(parser.OFPActionOutput(out_port))
             self.add_flow(dp, 50, match, actions)
         
-        rate_str = 'unlimited' if ACTION_MAP[self.q_last_action][2] == 0xffff else f'{ACTION_MAP[self.q_last_action][2]/10}%'
-        self.logger.info(f"{Colors.GREEN}[QL-APPLY] Cloud Egress Flow updated: Port {out_port}, Queue {qid if qid is not None else 'default'}, Rate {rate_str}.{Colors.RESET}")
+        # rate_str = 'unlimited' if ACTION_MAP[self.q_last_action][2] == 0xffff else f'{ACTION_MAP[self.q_last_action][2]/10}%'
+        if out_port == CLOUD_PORT_BACKUP:
+            rate_str = "unlimited"
+        else:
+    # mapping qid -> max_rate đúng theo _setup_queues()
+            qid_to_rate = {0: 0xffff, 1: 700, 2: 500, 3: 300}
+            rate = qid_to_rate.get(qid, 0xffff)
+            rate_str = "unlimited" if rate == 0xffff else f"{rate/10}%"
+            self.logger.info(f"{Colors.GREEN}[QL-APPLY] Cloud Egress Flow updated: Port {out_port}, Queue {qid if qid is not None else 'default'}, Rate {rate_str}.{Colors.RESET}")
 
     # --- Q-LEARNING CONTROL: TỰ ĐỘNG TỐI ƯU QUEUE ĐỂ GIẢM MẤT GÓI ---
     def run_qlearning_control(self):
@@ -317,56 +277,52 @@ class AntiLoopController(app_manager.RyuApp):
         load = self.q_port_load.get((dpid, current_port, current_qid), 0)
         drops = self.q_drops.get((dpid, current_port, current_qid), 0)
 
-        # 1. Xác định state (Ưu tiên drops để tránh mất gói)
-        if drops > 0:
-            state = 2  # High (có mất gói)
-        elif load < CONGESTION_THRESHOLD * 0.5:
-            state = 0  # Low
-        else:
-            state = 1  # Medium
+        state = self.model.get_state(load_bps=load, drops=drops)
 
-        # 2. Agent chọn hành động (Action là index từ 0-3)
         action = self.q_agent.choose_action(state)
         new_port, new_qid, rate = ACTION_MAP[action]
 
-        # 3. Tính reward (Tập trung giảm drops, thưởng throughput cao nếu không drops)
-        if drops > 0:
-            reward = -50  # Phạt nặng vì mất gói
+        stable_bonus = (self.q_last_action is not None and action == self.q_last_action)
+        backup_penalty = (action == 3 and state != 2)  
+        reward = self.model.get_reward(
+        load_bps=load,
+        drops=drops,
+        stable_bonus=stable_bonus,
+        backup_penalty=backup_penalty
+        )
+        if self.q_last_state is not None and self.q_last_action is not None:
+            self.q_agent.learn(
+                s=self.q_last_state,
+                a=self.q_last_action,
+                r=reward,
+                s_next=state,
+                load=load,
+                drops=drops
+            )
         else:
-            reward = 30 if load < CONGESTION_THRESHOLD * 0.5 else 10  # Thưởng nếu không drops
-            reward += (load / (CONGESTION_THRESHOLD + 1e-6)) * 5  # Thưởng thêm cho throughput cao
+            if hasattr(self.q_agent, "_log_internal"):
+                self.q_agent._log_internal(state=state, action=action, reward=reward, load=load, drops=drops, max_q=0.0)
 
-        # Thưởng cho sự ổn định
-        if self.q_last_action is not None and action == self.q_last_action:
-            reward += 5
-        
-        # Phạt nhẹ nếu dùng backup mà không cần thiết
-        if action == 3 and state != 2:
-            reward -= 3
-
-        # 4. Học
-        if self.q_last_state is not None:
-            self.q_agent.learn(self.q_last_state, self.q_last_action, reward, state)
-
-        # 5. Áp dụng Action nếu thay đổi (Update flow)
         if self.q_last_action is None or action != self.q_last_action:
             self._update_cloud_flow(dp, new_port, new_qid)
             self.q_last_port = new_port
             self.q_last_qid = new_qid
 
-        # In thông tin
-        self.q_agent.print_q_table()
+    # In debug (giữ nguyên style log của bạn)
         rate_str = 'unlimited' if rate == 0xffff else f'{rate/10}%'
-        print(f"{Colors.BLUE}[QL-STATUS] State:{state} → Action:{action} (P{new_port} Q{new_qid if new_qid is not None else 'def'} {rate_str}) | "
-              f"Load:{load/1e6:.2f}MB/s Drops:{drops} | "
-              f"Reward:{reward:+.1f} ε:{self.q_agent.epsilon:.3f}{Colors.RESET}\n")
+        print(
+            f"{Colors.BLUE}[QL-STATUS] State:{state} → Action:{action} "
+            f"(P{new_port} Q{new_qid if new_qid is not None else 'def'} {rate_str}) | "
+            f"Load:{load/1e6:.2f}MB/s Drops:{drops} | Reward:{reward:+.1f} "
+            f"ε:{self.q_agent.epsilon:.3f}{Colors.RESET}\n"
+        )
 
         self.q_last_state = state
         self.q_last_action = action
-        self.q_agent.log_step(state, action, reward, load, drops)
 
         if int(time.time()) % 30 == 0:
-            self.q_agent.export_q_table()
+            if hasattr(self.q_agent, "export_q_table"):
+                self.q_agent.export_q_table()
 
     # --- FEATURE 3: API & PRE/POST FLOW LOGGING ---
     def change_route(self, dpid, destination_ip, new_port):

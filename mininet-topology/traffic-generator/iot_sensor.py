@@ -63,7 +63,7 @@ def tcp_bulk(server_ip, port, duration_s, out_writer, target_mbps=None):
         out_writer.writerow([time.time(), "bulk", None, 1, 0, 0])
         return
 
-    payload = os.urandom(65536)
+    payload = b"x" * 65536
     start = time.time()
     sent_bytes = 0
     while time.time() - start < duration_s:
@@ -93,13 +93,11 @@ def main():
     ap.add_argument("--server", required=True)
     ap.add_argument("--case", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--bulk_boost", type=int, default=0)
-    ap.add_argument("--alarm_burst", type=int, default=0)
     args = ap.parse_args()
 
     total = int(os.environ.get("RUN_SECONDS", "90"))
     window = 10
-    loops = max(1, total // window)
+    loops = total // window
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", newline="") as f:
@@ -107,16 +105,62 @@ def main():
         w.writerow(["ts","class","rtt_ms","lost","sent","bps"])
 
         for i in range(loops):
-            udp_client(args.server, TEL_UDP, "telemetry", rate_pps=20, duration_s=window, out_writer=w)
-            if args.alarm_burst and i == 0:
-                udp_client(args.server, CRIT_UDP, "critical", rate_pps=200, duration_s=window, out_writer=w)
-            else:
-                udp_client(args.server, CRIT_UDP, "critical", rate_pps=30, duration_s=window, out_writer=w)
+            elapsed = i * window
 
-            if args.bulk_boost:
-                tcp_bulk(args.server, BULK_TCP, duration_s=window, out_writer=w, target_mbps=None)
+            # Phase detection
+            if elapsed < 30:
+                phase = "normal"
+            elif elapsed < 60:
+                phase = "congestion"
             else:
-                tcp_bulk(args.server, BULK_TCP, duration_s=window, out_writer=w, target_mbps=2.0)
+                phase = "recovery"
+
+            # Telemetry – luôn nhẹ
+            udp_client(
+                args.server,
+                TEL_UDP,
+                "telemetry",
+                rate_pps=20,
+                duration_s=window,
+                out_writer=w
+            )
+
+            # Critical – luôn tồn tại
+            crit_rate = 30 if phase != "congestion" else 50
+            udp_client(
+                args.server,
+                CRIT_UDP,
+                "critical",
+                rate_pps=crit_rate,
+                duration_s=window,
+                out_writer=w
+            )
+
+            # Bulk traffic – nguồn gây congestion
+            if phase == "normal":
+                tcp_bulk(
+                    args.server,
+                    BULK_TCP,
+                    duration_s=window,
+                    out_writer=w,
+                    target_mbps=1.0
+                )
+            elif phase == "congestion":
+                tcp_bulk(
+                    args.server,
+                    BULK_TCP,
+                    duration_s=window,
+                    out_writer=w,
+                    target_mbps=8.0
+                )
+            else:  # recovery
+                tcp_bulk(
+                    args.server,
+                    BULK_TCP,
+                    duration_s=window,
+                    out_writer=w,
+                    target_mbps=2.0
+                )
 
             f.flush()
 
