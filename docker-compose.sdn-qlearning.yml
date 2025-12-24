@@ -1,5 +1,13 @@
 version: '3.8'
 services:
+  qlearning-agent:
+    build: ./qlearning-agent
+    container_name: qlearning-agent
+    networks:
+      - sdn-net
+    volumes:
+      - ./shared:/shared
+
   mininet:
     build: ./mininet-topology
     container_name: mininet
@@ -20,6 +28,8 @@ services:
     ports:
       - "6653:6653"
       - "8080:8080"
+    depends_on:
+      - qlearning-agent
     networks:
       - sdn-net
     volumes:

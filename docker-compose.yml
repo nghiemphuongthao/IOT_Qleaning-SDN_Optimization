@@ -4,6 +4,7 @@ services:
   mininet:
     build: ./mininet-topology
     container_name: mininet
+    command: python3 /app/run_sdn_traditional.py
     privileged: true
     tty: true
     depends_on:
@@ -29,7 +30,9 @@ services:
       - ./shared:/shared
 
   analysis:
-    build: ./analysis
+    build: 
+      context: .
+      dockerfile: analysis/Dockerfile
     container_name: analysis
     tty: true
     depends_on:

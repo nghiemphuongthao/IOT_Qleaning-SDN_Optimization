@@ -1,4 +1,18 @@
+version: "3.8"
+
 services:
-  ryu-controller:
-    command: sleep infinity
+  mininet:
+    build: ./mininet-topology
+    container_name: mininet
+    command: python3 /app/run_no_sdn.py
+    privileged: true
+    tty: true
+    networks:
+      - sdn-net
+    volumes:
+      - ./shared:/shared
+
+networks:
+  sdn-net:
+    driver: bridge
 

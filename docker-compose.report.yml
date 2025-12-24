@@ -1,0 +1,7 @@
+services:
+  analysis:
+    build:
+      context: .
+      dockerfile: analysis/Dockerfile
+    volumes:
+      - ./shared:/shared

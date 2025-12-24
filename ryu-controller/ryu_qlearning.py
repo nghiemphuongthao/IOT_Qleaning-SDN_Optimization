@@ -2,12 +2,13 @@ import json
 import time
 import pprint
 from operator import attrgetter
+from typing import Optional
 from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
 from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
-from ryu.lib.packet import packet, ethernet, arp, ipv4, ether_types
+from ryu.lib.packet import packet, ethernet, arp, ipv4, ether_types, tcp, udp
 from ryu.lib import hub
 from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 from webob import Response
@@ -15,9 +16,7 @@ import numpy as np
 import random
 import csv
 import os
-
-from q_agent import QAgent
-from model import QoSModel
+import requests
 
 # --- CONFIGURATION ---
 CONGESTION_THRESHOLD = 200000 
@@ -26,6 +25,14 @@ MONITOR_INTERVAL = 2            # Monitor every 2 seconds
 SW256_DPID = 256
 CLOUD_PORT_MAIN = 1
 CLOUD_PORT_BACKUP = 5
+
+CRIT_UDP = int(os.environ.get("CRIT_UDP", "5001"))
+TEL_UDP = int(os.environ.get("TEL_UDP", "5002"))
+BULK_TCP = int(os.environ.get("BULK_TCP", "5003"))
+
+QUEUE_PRIO = 0
+QUEUE_BULK = 1
+METER_BULK_ID = 1
 
 ACTION_MAP = {
     0: (CLOUD_PORT_MAIN, 0, 0xffff),
@@ -66,15 +73,11 @@ class AntiLoopController(app_manager.RyuApp):
         self.q_port_load = {}      # Lưu tốc độ port/queue cho Q-Learning
         self.q_drops = {}          # Lưu drops cho Q-Learning
 
-        # Biến Q-Learning
-        self.model = QoSModel(congestion_threshold=CONGESTION_THRESHOLD)
-
-        self.q_agent = QAgent(n_states=3, n_actions=4)
-
-        self.q_last_state = None
-        self.q_last_action = None
-        self.q_last_port = None
-        self.q_last_qid = None
+        self.agent_url = os.environ.get("QLEARNING_AGENT_URL", "http://qlearning-agent:5000").rstrip("/")
+        self.agent_timeout_s = float(os.environ.get("QLEARNING_AGENT_TIMEOUT_S", "0.3"))
+        self.flow_idle_timeout = int(os.environ.get("FLOW_IDLE_TIMEOUT", "20"))
+        self.flow_hard_timeout = int(os.environ.get("FLOW_HARD_TIMEOUT", "0"))
+        self._agent_session = requests.Session()
 
         self.static_arp_table = {
             "10.0.100.2": self.CLOUD_MAC,
@@ -107,6 +110,37 @@ class AntiLoopController(app_manager.RyuApp):
 
         self.monitor_thread = hub.spawn(self._monitor)
 
+    def _agent_observe(self, dpid: int, port: int, load_bps: float, drops: int, qid: Optional[int] = None):
+        try:
+            self._agent_session.post(
+                f"{self.agent_url}/observe",
+                json={
+                    "dpid": int(dpid),
+                    "port": int(port),
+                    "qid": (None if qid is None else int(qid)),
+                    "load_bps": float(load_bps),
+                    "drops": int(drops),
+                },
+                timeout=self.agent_timeout_s,
+            )
+        except Exception:
+            return
+
+    def _agent_choose_out_port(self, dpid: int, dst_prefix: str, candidates):
+        try:
+            resp = self._agent_session.post(
+                f"{self.agent_url}/act",
+                json={"dpid": int(dpid), "dst_prefix": str(dst_prefix), "candidates": list(candidates)},
+                timeout=self.agent_timeout_s,
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json() if resp.content else {}
+            out_port = data.get("out_port")
+            return int(out_port) if out_port is not None else None
+        except Exception:
+            return None
+
     # --- FEATURE 1: PRETTY PRINT ROUTING TABLE ---
     def print_routing_table_pretty(self):
         print(f"\n{Colors.BLUE}{'='*60}")
@@ -132,7 +166,6 @@ class AntiLoopController(app_manager.RyuApp):
                     if dp.id in [256, 768]:
                         self._request_stats(dp)
                 hub.sleep(0.3)
-                self.run_qlearning_control()
             except Exception: 
                 self.logger.exception("[MONITOR] recover")
             hub.sleep(MONITOR_INTERVAL)
@@ -167,6 +200,8 @@ class AntiLoopController(app_manager.RyuApp):
                     total_speed = speed_tx + speed_rx
                     
                     self.q_port_load[key] = total_speed
+
+                    self._agent_observe(dpid=dpid, port=port_no, qid=None, load_bps=total_speed, drops=0)
                     
                     # RED ALERT LOGIC
                     if speed_tx > CONGESTION_THRESHOLD or speed_rx > CONGESTION_THRESHOLD:
@@ -197,6 +232,8 @@ class AntiLoopController(app_manager.RyuApp):
                     
                     self.q_port_load[key] = speed
                     self.q_drops[key] = drops
+
+                    self._agent_observe(dpid=dpid, port=port_no, qid=queue_id, load_bps=speed, drops=drops)
                     
                     if drops > 0:
                         print(f"{Colors.RED}[DROP] SW{dpid} P{port_no} Q{queue_id}: {drops} drops{Colors.RESET}")
@@ -283,66 +320,7 @@ class AntiLoopController(app_manager.RyuApp):
 
     # --- Q-LEARNING CONTROL: TỰ ĐỘNG TỐI ƯU QUEUE ĐỂ GIẢM MẤT GÓI ---
     def run_qlearning_control(self):
-        dpid = SW256_DPID
-        if dpid not in self.datapaths:
-            return
-
-        dp = self.datapaths[dpid]
-        current_port = self.q_last_port if self.q_last_port else CLOUD_PORT_MAIN
-        current_qid = self.q_last_qid if self.q_last_qid is not None else 0
-        load = self.q_port_load.get((dpid, current_port, current_qid))
-        if load is None:
-            load = self.q_port_load.get((dpid, current_port), 0)
-        drops = self.q_drops.get((dpid, current_port, current_qid), 0)
-        self.logger.info(f"[QL-OBS] dpid={dpid} port={current_port} qid={current_qid} loadBps={load:.1f} drops={drops}")
-
-
-        state = self.model.get_state(load_bps=load, drops=drops)
-
-        action = self.q_agent.choose_action(state)
-        new_port, new_qid, rate = ACTION_MAP[action]
-
-        stable_bonus = (self.q_last_action is not None and action == self.q_last_action)
-        backup_penalty = (action == 3 and state != 2)  
-        reward = self.model.get_reward(
-        load_bps=load,
-        drops=drops,
-        stable_bonus=stable_bonus,
-        backup_penalty=backup_penalty
-        )
-        if self.q_last_state is not None and self.q_last_action is not None:
-            self.q_agent.learn(
-                s=self.q_last_state,
-                a=self.q_last_action,
-                r=reward,
-                s_next=state,
-                load=load,
-                drops=drops
-            )
-        else:
-            if hasattr(self.q_agent, "_log_internal"):
-                self.q_agent._log_internal(state=state, action=action, reward=reward, load=load, drops=drops, max_q=0.0)
-
-        if self.q_last_action is None or action != self.q_last_action:
-            self._update_cloud_flow(dp, new_port, new_qid)
-            self.q_last_port = new_port
-            self.q_last_qid = new_qid
-
-    # In debug (giữ nguyên style log của bạn)
-        rate_str = 'unlimited' if rate == 0xffff else f'{rate/10}%'
-        print(
-            f"{Colors.BLUE}[QL-STATUS] State:{state} → Action:{action} "
-            f"(P{new_port} Q{new_qid if new_qid is not None else 'def'} {rate_str}) | "
-            f"Load:{load/1e6:.2f}MB/s Drops:{drops} | Reward:{reward:+.1f} "
-            f"ε:{self.q_agent.epsilon:.3f}{Colors.RESET}\n"
-        )
-
-        self.q_last_state = state
-        self.q_last_action = action
-
-        if int(time.time()) % 30 == 0:
-            if hasattr(self.q_agent, "export_q_table"):
-                self.q_agent.export_q_table()
+        return
 
     # --- FEATURE 3: API & PRE/POST FLOW LOGGING ---
     def change_route(self, dpid, destination_ip, new_port):
@@ -394,17 +372,53 @@ class AntiLoopController(app_manager.RyuApp):
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
         self.add_flow(datapath, 0, match, actions)
-        
-        if datapath.id == SW256_DPID:
-            self._setup_queues(datapath)
-            self._update_cloud_flow(datapath, CLOUD_PORT_MAIN, 0)  # Initial: Port 1, Queue 0
 
-    def add_flow(self, datapath, priority, match, actions, buffer_id=None):
+        bulk_kbps = int(os.environ.get("BULK_METER_KBPS", "1200"))
+        self.add_meter(datapath, meter_id=METER_BULK_ID, rate_kbps=bulk_kbps, burst_kb=200)
+
+    def add_flow(self, datapath, priority, match, actions, buffer_id=None, idle_timeout=0, hard_timeout=0):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-        mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match, instructions=inst)
+        mod = parser.OFPFlowMod(
+            datapath=datapath,
+            priority=priority,
+            match=match,
+            instructions=inst,
+            idle_timeout=int(idle_timeout),
+            hard_timeout=int(hard_timeout),
+        )
         datapath.send_msg(mod)
+
+    def add_flow_with_meter(self, datapath, priority, match, actions, meter_id, buffer_id=None, idle_timeout=0, hard_timeout=0):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        inst = [
+            parser.OFPInstructionMeter(int(meter_id), ofproto.OFPIT_METER),
+            parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions),
+        ]
+        mod = parser.OFPFlowMod(
+            datapath=datapath,
+            priority=priority,
+            match=match,
+            instructions=inst,
+            idle_timeout=int(idle_timeout),
+            hard_timeout=int(hard_timeout),
+        )
+        datapath.send_msg(mod)
+
+    def add_meter(self, datapath, meter_id, rate_kbps, burst_kb=100):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        bands = [parser.OFPMeterBandDrop(rate=int(rate_kbps), burst_size=int(burst_kb))]
+        req = parser.OFPMeterMod(
+            datapath=datapath,
+            command=ofproto.OFPMC_ADD,
+            flags=ofproto.OFPMF_KBPS,
+            meter_id=int(meter_id),
+            bands=bands,
+        )
+        datapath.send_msg(req)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -429,9 +443,21 @@ class AntiLoopController(app_manager.RyuApp):
         # Handle IP Routing
         if eth.ethertype == ether_types.ETH_TYPE_IP:
             ip_pkt = pkt.get_protocols(ipv4.ipv4)[0]
-            self.handle_ip_routing(datapath, in_port, ip_pkt, msg)
+            tcp_pkt = pkt.get_protocol(tcp.tcp)
+            udp_pkt = pkt.get_protocol(udp.udp)
 
-    def handle_ip_routing(self, datapath, in_port, ip_pkt, msg):
+            l4_proto = None
+            l4_dst_port = None
+            if tcp_pkt is not None:
+                l4_proto = "tcp"
+                l4_dst_port = int(tcp_pkt.dst_port)
+            elif udp_pkt is not None:
+                l4_proto = "udp"
+                l4_dst_port = int(udp_pkt.dst_port)
+
+            self.handle_ip_routing(datapath, in_port, ip_pkt, msg, l4_proto=l4_proto, l4_dst_port=l4_dst_port)
+
+    def handle_ip_routing(self, datapath, in_port, ip_pkt, msg, l4_proto=None, l4_dst_port=None):
         dpid = datapath.id
         dst_ip = ip_pkt.dst
         
@@ -440,6 +466,24 @@ class AntiLoopController(app_manager.RyuApp):
             routing_table = self.routing_table.get(dpid, {})
             out_port = routing_table.get(subnet_key)
             if not out_port: out_port = routing_table.get("default")
+
+            candidates = []
+            primary = routing_table.get(subnet_key)
+            if primary is not None:
+                candidates.append(int(primary))
+            else:
+                default_p = routing_table.get("default")
+                if default_p is not None:
+                    candidates.append(int(default_p))
+
+            if dpid == 256 and subnet_key in ["10.0.100", "10.0.200"]:
+                for p in [CLOUD_PORT_MAIN, CLOUD_PORT_BACKUP]:
+                    if int(p) not in candidates:
+                        candidates.append(int(p))
+
+            agent_out = self._agent_choose_out_port(dpid=dpid, dst_prefix=subnet_key, candidates=candidates)
+            if agent_out is not None:
+                out_port = agent_out
             
             if out_port:
                 dst_mac = self.static_arp_table.get(dst_ip)
@@ -449,29 +493,54 @@ class AntiLoopController(app_manager.RyuApp):
                     parser = datapath.ofproto_parser
                     actions = []
                     # Default Failover Logic (Priority 10)
-                    if dpid == 256 and ("10.0.100" in dst_ip): # G1
-                        group_id = 50
-                        if dpid not in self.groups_installed:
-                            self.add_failover_group(datapath, group_id, 1, 5)
-                            self.groups_installed[dpid] = True
-                        actions = [parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
-                                   parser.OFPActionSetField(eth_dst=dst_mac),
-                                   parser.OFPActionGroup(group_id)]
-                    elif dpid == 768 and ("10.0.200" in dst_ip): # G3
-                        group_id = 51
-                        if dpid not in self.groups_installed:
-                            self.add_failover_group(datapath, group_id, 3, 1)
-                            self.groups_installed[dpid] = True
-                        actions = [parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
-                                   parser.OFPActionSetField(eth_dst=dst_mac),
-                                   parser.OFPActionGroup(group_id)]
-                    else:
-                        actions = [parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
-                                   parser.OFPActionSetField(eth_dst=dst_mac),
-                                   parser.OFPActionOutput(out_port)]
+                    actions = [parser.OFPActionSetField(eth_src=self.GATEWAY_MAC),
+                               parser.OFPActionSetField(eth_dst=dst_mac)]
+
+                    use_meter = False
+                    if l4_proto == "udp" and l4_dst_port in [CRIT_UDP, TEL_UDP]:
+                        actions.append(parser.OFPActionSetQueue(QUEUE_PRIO))
+                    elif l4_proto == "tcp" and l4_dst_port == BULK_TCP:
+                        use_meter = True
+                        actions.append(parser.OFPActionSetQueue(QUEUE_BULK))
+
+                    actions.append(parser.OFPActionOutput(out_port))
                     
-                    match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=dst_ip)
-                    self.add_flow(datapath, 10, match, actions)
+                    if l4_proto == "udp" and l4_dst_port is not None:
+                        match = parser.OFPMatch(
+                            eth_type=ether_types.ETH_TYPE_IP,
+                            ip_proto=17,
+                            ipv4_dst=dst_ip,
+                            udp_dst=int(l4_dst_port),
+                        )
+                    elif l4_proto == "tcp" and l4_dst_port is not None:
+                        match = parser.OFPMatch(
+                            eth_type=ether_types.ETH_TYPE_IP,
+                            ip_proto=6,
+                            ipv4_dst=dst_ip,
+                            tcp_dst=int(l4_dst_port),
+                        )
+                    else:
+                        match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=dst_ip)
+
+                    if use_meter:
+                        self.add_flow_with_meter(
+                            datapath,
+                            20,
+                            match,
+                            actions,
+                            meter_id=METER_BULK_ID,
+                            idle_timeout=self.flow_idle_timeout,
+                            hard_timeout=self.flow_hard_timeout,
+                        )
+                    else:
+                        self.add_flow(
+                            datapath,
+                            20,
+                            match,
+                            actions,
+                            idle_timeout=self.flow_idle_timeout,
+                            hard_timeout=self.flow_hard_timeout,
+                        )
                     
                     data = msg.data if msg.buffer_id == datapath.ofproto.OFP_NO_BUFFER else None
                     out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id, in_port=in_port, actions=actions, data=data)

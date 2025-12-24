@@ -86,6 +86,21 @@ def run():
 
     net.start()
     net.pingAll()
+
+    g1 = net.get('g1')
+    g3 = net.get('g3')
+    qos_max_bps = int(float(os.environ.get('QOS_MAX_BPS', '100000000')))
+    bulk_max_bps = int(float(os.environ.get('BULK_MAX_BPS', '1200000')))
+    queue_cfg = (
+        "ovs-vsctl --if-exists clear Port {port} qos "
+        "-- set Port {port} qos=@newqos "
+        "-- --id=@newqos create QoS type=linux-htb other-config:max-rate={max_rate} queues:0=@q0 queues:1=@q1 "
+        "-- --id=@q0 create Queue other-config:min-rate={max_rate} other-config:max-rate={max_rate} "
+        "-- --id=@q1 create Queue other-config:max-rate={bulk_rate}"
+    )
+    g1.cmd(queue_cfg.format(port='g1-eth1', max_rate=qos_max_bps, bulk_rate=bulk_max_bps))
+    g1.cmd(queue_cfg.format(port='g1-eth5', max_rate=qos_max_bps, bulk_rate=bulk_max_bps))
+    g3.cmd(queue_cfg.format(port='g3-eth3', max_rate=qos_max_bps, bulk_rate=bulk_max_bps))
     
     cloud = net.get('cloud')
     info("[*] Disabling rp_filter on Cloud...\n")
@@ -106,23 +121,28 @@ def run():
 
     # Start Services
     info("[*] Starting Services...\n")
-    cloud.cmd("python3 traffic-generator/iot_server.py --bind 0.0.0.0 --out /shared/server/server.csv ...")
+    cloud.cmd("mkdir -p /shared/raw /shared/logs")
+    cloud.cmd("python3 /app/traffic-generator/iot_server.py --bind 0.0.0.0 --out /shared/raw/sdn_qlearning_server.csv > /shared/logs/iot_server.log 2>&1 &")
     # cloud.cmd("iperf -s -u -p 5001 &") 
     
     sensors = {'h1': 'temp', 'h2': 'humid', 'h3': 'motion', 'h4': 'temp', 'h10': 'humid'}
     for h, t in sensors.items():
         node = net.get(h)
         node.cmd(
-  f"python3 traffic-generator/iot_sensor.py "
+  f"python3 /app/traffic-generator/iot_sensor.py "
   f"--name {h} "
   f"--server 10.0.100.2 "
   f"--case sdn_qlearning "
-  f"--out /shared/raw/sdn_qlearning_{h}.csv &"
+  f"--out /shared/raw/sdn_qlearning_{h}.csv "
   f"> /shared/logs/{h}_sensor.log 2>&1 &"
 )
         info(f" -> {h} started sending {t}\n")
 
-    CLI(net)
+    if os.environ.get("INTERACTIVE", "0") == "1":
+        CLI(net)
+    else:
+        total = int(os.environ.get("RUN_SECONDS", "90"))
+        time.sleep(total + 5)
     
     os.system("pkill -f iot_server.py")
     os.system("pkill -f iot_sensor.py")

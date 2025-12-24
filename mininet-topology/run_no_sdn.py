@@ -111,11 +111,12 @@ def run():
 
 # Start Cloud Server
     info(f"[*] Starting Cloud Server on {CLOUD_IP}...\n")
+    cloud.cmd("mkdir -p /shared/raw /shared/logs")
     cloud.cmd(
-        "python3 traffic-generator/iot_server.py "
-        f"--case {CASE} "
+        "python3 -u /app/traffic-generator/iot_server.py "
+        f"--bind 0.0.0.0 "
         f"--out /shared/raw/{CASE}_server.csv "
-        "> /tmp/iot_server.log 2>&1 &"
+        "> /shared/logs/iot_server.log 2>&1 &"
     )
     time.sleep(2)
 # Start Sensors
@@ -132,12 +133,12 @@ def run():
         h = net.get(hostname)
 
         cmd = (
-            "python3 traffic-generator/iot_sensor.py "
+            "python3 -u /app/traffic-generator/iot_sensor.py "
             f"--name {hostname} "
             f"--server {CLOUD_IP} "
             f"--case {CASE} "
             f"--out /shared/raw/{CASE}_{hostname}.csv "
-            f"> /tmp/{hostname}_sensor.log 2>&1 &"
+            f"> /shared/logs/{hostname}_sensor.log 2>&1 &"
         )
 
         h.cmd(cmd)
@@ -149,7 +150,11 @@ def run():
     info("Sensor CSVs: /shared/raw/no_sdn_h*.csv\n")
     info("------------------------------------------------\n")
 
-    CLI(net)
+    if os.environ.get("INTERACTIVE", "0") == "1":
+        CLI(net)
+    else:
+        total = int(os.environ.get("RUN_SECONDS", "90"))
+        time.sleep(total + 5)
     
     os.system("pkill -f iot_server.py")
     os.system("pkill -f iot_sensor.py")

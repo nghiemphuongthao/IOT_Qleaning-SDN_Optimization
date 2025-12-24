@@ -1,8 +1,9 @@
 FROM python:3.11-slim
 WORKDIR /app
-COPY requirements.txt /app/requirements.txt
+
+COPY analysis/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
-COPY collect_metrics.py compare_cases.py plot_rl_only.py  qlearning_log.csv /app/
 
-CMD ["python", "plot_rl_only.py"]
+COPY analysis/collect_metrics.py analysis/compare_cases.py analysis/run_all.py /app/
 
+CMD ["python", "run_all.py"]

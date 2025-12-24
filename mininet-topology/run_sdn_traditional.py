@@ -105,16 +105,27 @@ def run():
 
     # Start Services
     info("[*] Starting Services...\n")
-    cloud.cmd("PYTHONIOENCODING=utf-8 traffic-generator/python3 iot_server.py > server.log 2>&1 &")
-    cloud.cmd("iperf -s -u -p 5001 &") 
+    cloud.cmd("mkdir -p /shared/raw /shared/logs")
+    cloud.cmd("python3 /app/traffic-generator/iot_server.py --bind 0.0.0.0 --out /shared/raw/sdn_traditional_server.csv > /shared/logs/iot_server.log 2>&1 &")
     
     sensors = {'h1': 'temp', 'h2': 'humid', 'h3': 'motion', 'h4': 'temp', 'h10': 'humid'}
     for h, t in sensors.items():
         node = net.get(h)
-        node.cmd(f"python3 traffic-generator/iot_sensor.py {h} {t} &")
+        node.cmd(
+            f"python3 /app/traffic-generator/iot_sensor.py "
+            f"--name {h} "
+            f"--server 10.0.100.2 "
+            f"--case sdn_traditional "
+            f"--out /shared/raw/sdn_traditional_{h}.csv "
+            f"> /shared/logs/{h}_sensor.log 2>&1 &"
+        )
         info(f" -> {h} started sending {t}\n")
 
-    CLI(net)
+    if os.environ.get("INTERACTIVE", "0") == "1":
+        CLI(net)
+    else:
+        total = int(os.environ.get("RUN_SECONDS", "90"))
+        time.sleep(total + 5)
     
     os.system("pkill -f iot_server.py")
     os.system("pkill -f iot_sensor.py")

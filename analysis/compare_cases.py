@@ -4,30 +4,39 @@ import matplotlib.pyplot as plt
 import os
 
 # Đường dẫn
-results_dir = '../shared/results'
+results_dir = '/shared/results'
 
 # Đọc summary
 summary_df = pd.read_csv(os.path.join(results_dir, 'summary.csv'))
 
-# Group by case và tính mean
-grouped = summary_df.groupby('case').mean(numeric_only=True)
+cols = [
+    'bulk_throughput_mbps',
+    'critical_loss_pct',
+    'telemetry_loss_pct',
+    'udp_total_loss_pct',
+    'critical_rtt_ms',
+    'telemetry_rtt_ms',
+]
 
-# Plot Throughput
-grouped['throughput'].plot(kind='bar', title='Average Throughput (Mbps)')
-plt.ylabel('Mbps')
-plt.savefig(os.path.join(results_dir, 'throughput.png'))
-plt.close()
+for c in cols:
+    if c in summary_df.columns:
+        summary_df[c] = pd.to_numeric(summary_df[c], errors='coerce')
 
-# Plot Packet Loss
-grouped['packet_loss'].plot(kind='bar', title='Average Packet Loss (%)')
-plt.ylabel('%')
-plt.savefig(os.path.join(results_dir, 'packet_loss.png'))
-plt.close()
+def _bar(col, title, ylabel, filename):
+    if col not in summary_df.columns:
+        return
+    s = summary_df.set_index('case')[col]
+    s.plot(kind='bar', title=title)
+    plt.ylabel(ylabel)
+    plt.tight_layout()
+    plt.savefig(os.path.join(results_dir, filename))
+    plt.close()
 
-# Plot RTT
-grouped['rtt'].plot(kind='bar', title='Average RTT (ms)')
-plt.ylabel('ms')
-plt.savefig(os.path.join(results_dir, 'rtt.png'))
-plt.close()
+_bar('bulk_throughput_mbps', 'Bulk Throughput (server mean)', 'Mbps', 'bulk_throughput_mbps.png')
+_bar('critical_loss_pct', 'Critical UDP Loss', '%', 'critical_loss_pct.png')
+_bar('telemetry_loss_pct', 'Telemetry UDP Loss', '%', 'telemetry_loss_pct.png')
+_bar('udp_total_loss_pct', 'Total UDP Loss (all classes)', '%', 'udp_total_loss_pct.png')
+_bar('critical_rtt_ms', 'Critical UDP RTT', 'ms', 'critical_rtt_ms.png')
+_bar('telemetry_rtt_ms', 'Telemetry UDP RTT', 'ms', 'telemetry_rtt_ms.png')
 
-print("Comparisons plotted and saved.")
+print("Comparisons plotted and saved to", results_dir)
