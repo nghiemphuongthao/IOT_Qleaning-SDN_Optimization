@@ -5,6 +5,9 @@ down-qlearning:
 log-ryu:
 	docker logs -f ryu-controller
 log-agent:
-	docker logs -f qlearning_agent 
+	docker logs -f qlearning-agent 
 
-.PHONY: qlearning down-qlearning log-ryu log-agent
+run-all:
+	bash scripts/run_all.sh
+
+.PHONY: qlearning down-qlearning log-ryu log-agent run-all

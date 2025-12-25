@@ -1,7 +1,10 @@
 import os
+import json
 import time
 import threading
 from dataclasses import dataclass
+import csv
+from pathlib import Path
 
 import numpy as np
 from flask import Flask, jsonify, request
@@ -144,6 +147,11 @@ AGENT = QAgent(
 )
 STORE = StateStore()
 
+LOG_PATH = Path(os.environ.get("QL_LOG_PATH", "/shared/raw/qlearning_agent_log.csv"))
+LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+_log_lock = threading.Lock()
+_log_initialized = False
+
 app = Flask(__name__)
 
 
@@ -198,6 +206,8 @@ def act():
     state, max_load, total_drops = _compute_switch_state(dpid)
     key = _flow_key(dpid, dst_prefix)
 
+    reward = None
+
     with AGENT._lock:
         AGENT._ensure_key(key, candidates)
         action_idx = AGENT.choose_action(key, state)
@@ -207,11 +217,65 @@ def act():
         if prev is not None:
             s_prev, a_prev = prev
             r = MODEL.get_reward(load_bps=max_load, drops=total_drops)
+            reward = float(r)
             AGENT.learn(key, s=s_prev, a=a_prev, r=r, s_next=state)
 
         AGENT._last[key] = (state, action_idx)
         AGENT._step += 1
         step = AGENT._step
+
+        q_snapshot = None
+        try:
+            q_snapshot = AGENT._q_tables[key][state].tolist()
+        except Exception:
+            q_snapshot = None
+
+        eps = float(AGENT.epsilon)
+
+    global _log_initialized
+    try:
+        with _log_lock:
+            if not _log_initialized or not LOG_PATH.exists():
+                with LOG_PATH.open("a", newline="") as f:
+                    w = csv.writer(f)
+                    w.writerow(
+                        [
+                            "ts",
+                            "step",
+                            "dpid",
+                            "dst_prefix",
+                            "state",
+                            "action",
+                            "out_port",
+                            "epsilon",
+                            "max_load_bps",
+                            "total_drops",
+                            "reward",
+                            "q_values",
+                        ]
+                    )
+                _log_initialized = True
+
+            with LOG_PATH.open("a", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(
+                    [
+                        float(time.time()),
+                        int(step),
+                        int(dpid),
+                        str(dst_prefix),
+                        int(state),
+                        int(action_idx),
+                        int(out_port),
+                        float(eps),
+                        float(max_load),
+                        int(total_drops),
+                        ("" if reward is None else float(reward)),
+                        ("" if q_snapshot is None else json.dumps(q_snapshot)),
+                    ]
+                )
+    except Exception:
+        pass
 
     return jsonify(
         {
@@ -220,10 +284,48 @@ def act():
             "state": state,
             "action": action_idx,
             "out_port": out_port,
-            "epsilon": float(AGENT.epsilon),
+            "epsilon": float(eps),
             "step": step,
         }
     )
+
+
+@app.get("/debug/summary")
+def debug_summary():
+    with AGENT._lock:
+        keys = sorted(list(AGENT._q_tables.keys()))
+        return jsonify(
+            {
+                "step": int(AGENT._step),
+                "epsilon": float(AGENT.epsilon),
+                "keys": keys,
+            }
+        )
+
+
+@app.get("/debug/qtable")
+def debug_qtable():
+    key = request.args.get("key")
+    with AGENT._lock:
+        if key:
+            if key not in AGENT._q_tables:
+                return jsonify({"error": "key not found"}), 404
+            return jsonify(
+                {
+                    "key": key,
+                    "actions": AGENT._actions.get(key, []),
+                    "q": AGENT._q_tables[key].tolist(),
+                    "epsilon": float(AGENT.epsilon),
+                    "step": int(AGENT._step),
+                }
+            )
+        out = {}
+        for k, q in AGENT._q_tables.items():
+            out[k] = {
+                "actions": AGENT._actions.get(k, []),
+                "q": q.tolist(),
+            }
+        return jsonify({"epsilon": float(AGENT.epsilon), "step": int(AGENT._step), "tables": out})
 
 
 if __name__ == "__main__":

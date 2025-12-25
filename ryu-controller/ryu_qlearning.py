@@ -79,6 +79,8 @@ class AntiLoopController(app_manager.RyuApp):
         self.flow_hard_timeout = int(os.environ.get("FLOW_HARD_TIMEOUT", "0"))
         self._agent_session = requests.Session()
 
+        self.last_agent_choice = {}
+
         self.static_arp_table = {
             "10.0.100.2": self.CLOUD_MAC,
             "10.0.200.2": self.CLOUD_MAC,
@@ -93,7 +95,7 @@ class AntiLoopController(app_manager.RyuApp):
         self.routing_table = {
             # G1 (Switch 256)
             256: { 
-                "10.0.100": 1, "10.0.200": 1, 
+                "10.0.100": 1, "10.0.200": 5, 
                 "10.0.1": 2, "10.0.2": 3, "10.0.3": 4, "10.0.4": 5
             },
             # G2 (Switch 512)
@@ -137,6 +139,20 @@ class AntiLoopController(app_manager.RyuApp):
                 return None
             data = resp.json() if resp.content else {}
             out_port = data.get("out_port")
+            try:
+                self.last_agent_choice[f"{int(dpid)}:{dst_prefix}"] = {
+                    "ts": time.time(),
+                    "dpid": int(dpid),
+                    "dst_prefix": str(dst_prefix),
+                    "candidates": [int(p) for p in list(candidates)],
+                    "out_port": (None if out_port is None else int(out_port)),
+                    "state": data.get("state"),
+                    "action": data.get("action"),
+                    "epsilon": data.get("epsilon"),
+                    "step": data.get("step"),
+                }
+            except Exception:
+                pass
             return int(out_port) if out_port is not None else None
         except Exception:
             return None
@@ -468,18 +484,23 @@ class AntiLoopController(app_manager.RyuApp):
             if not out_port: out_port = routing_table.get("default")
 
             candidates = []
-            primary = routing_table.get(subnet_key)
-            if primary is not None:
-                candidates.append(int(primary))
+            # Cloud routing on G1 must be deterministic to avoid loops:
+            # - 10.0.100.* goes out g1 port 1 (direct to cloud-eth0)
+            # - 10.0.200.* goes out g1 port 5 (toward g3, then cloud-eth1)
+            if dpid == 256 and subnet_key == "10.0.100":
+                candidates = [int(CLOUD_PORT_MAIN)]
+                out_port = int(CLOUD_PORT_MAIN)
+            elif dpid == 256 and subnet_key == "10.0.200":
+                candidates = [int(CLOUD_PORT_BACKUP)]
+                out_port = int(CLOUD_PORT_BACKUP)
             else:
-                default_p = routing_table.get("default")
-                if default_p is not None:
-                    candidates.append(int(default_p))
-
-            if dpid == 256 and subnet_key in ["10.0.100", "10.0.200"]:
-                for p in [CLOUD_PORT_MAIN, CLOUD_PORT_BACKUP]:
-                    if int(p) not in candidates:
-                        candidates.append(int(p))
+                primary = routing_table.get(subnet_key)
+                if primary is not None:
+                    candidates.append(int(primary))
+                else:
+                    default_p = routing_table.get("default")
+                    if default_p is not None:
+                        candidates.append(int(default_p))
 
             agent_out = self._agent_choose_out_port(dpid=dpid, dst_prefix=subnet_key, candidates=candidates)
             if agent_out is not None:
@@ -578,6 +599,24 @@ class RestRouterController(ControllerBase):
     def __init__(self, req, link, data, **config):
         super(RestRouterController, self).__init__(req, link, data, **config)
         self.app = data[simple_switch_instance_name]
+
+    @route('qos', '/qos/routing', methods=['GET'])
+    def get_routing(self, req, **kwargs):
+        body = json.dumps(self.app.routing_table)
+        return Response(content_type='application/json', body=body.encode('utf-8'))
+
+    @route('qos', '/qos/agent', methods=['GET'])
+    def get_agent_state(self, req, **kwargs):
+        body = json.dumps(self.app.last_agent_choice)
+        return Response(content_type='application/json', body=body.encode('utf-8'))
+
+    @route('qos', '/qos/snapshot', methods=['GET'])
+    def get_snapshot(self, req, **kwargs):
+        port_load = {f"{k[0]}:{k[1]}": float(v) for k, v in self.app.q_port_load.items() if isinstance(k, tuple) and len(k) == 2}
+        queue_load = {f"{k[0]}:{k[1]}:{k[2]}": float(v) for k, v in self.app.q_port_load.items() if isinstance(k, tuple) and len(k) == 3}
+        queue_drops = {f"{k[0]}:{k[1]}:{k[2]}": int(v) for k, v in self.app.q_drops.items() if isinstance(k, tuple) and len(k) == 3}
+        body = json.dumps({"ts": time.time(), "port_load": port_load, "queue_load": queue_load, "queue_drops": queue_drops})
+        return Response(content_type='application/json', body=body.encode('utf-8'))
 
     @route('router', url, methods=['POST'], requirements={'dpid': '[0-9]+'})
     def set_route(self, req, **kwargs):

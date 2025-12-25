@@ -20,7 +20,7 @@ services:
   ryu-controller:
     build: ./ryu-controller
     container_name: ryu-controller
-    command: ryu-manager ryu_traditional.py
+    command: ryu-manager ryu.app.ofctl_rest ryu_traditional.py
     ports:
       - "6653:6653"
       - "8080:8080"
