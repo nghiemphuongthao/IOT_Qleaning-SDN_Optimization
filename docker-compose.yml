@@ -29,18 +29,18 @@ services:
     volumes:
       - ./shared:/shared
 
-  analysis:
-    build: 
-      context: .
-      dockerfile: analysis/Dockerfile
-    container_name: analysis
-    tty: true
-    depends_on:
-      - mininet
-    networks:
-      - sdn-net
-    volumes:
-      - ./shared:/shared
+  # analysis:
+  #   build: 
+  #     context: .
+  #     dockerfile: analysis/Dockerfile
+  #   container_name: analysis
+  #   tty: true
+  #   depends_on:
+  #     - mininet
+  #   networks:
+  #     - sdn-net
+  #   volumes:
+  #     - ./shared:/shared
 
 networks:
   sdn-net:

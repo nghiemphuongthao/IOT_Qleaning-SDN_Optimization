@@ -61,7 +61,7 @@ Check:
 
 ## Run everything automatically
 
-Run all cases sequentially (case1 -> case2 -> case3) and then run the analysis pipeline:
+#### Run all cases sequentially (case1 -> case2 -> case3) and then run the analysis pipeline:
 
 ```bash
 make run-all
@@ -73,7 +73,12 @@ Or:
 bash scripts/run_all.sh
 ```
 
-Supported environment variables:
+#### Run analysics
+```
+make report
+```
+
+#### Supported environment variables:
 
 - `RUN_SECONDS` (default `90`)
 - `BULK_METER_KBPS` (default `1200`)
