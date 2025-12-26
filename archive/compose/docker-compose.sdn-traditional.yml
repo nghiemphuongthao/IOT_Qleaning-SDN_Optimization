@@ -1,0 +1,4 @@
+services:
+  ryu-controller:
+    command: ryu-manager ryu_traditional.py
+

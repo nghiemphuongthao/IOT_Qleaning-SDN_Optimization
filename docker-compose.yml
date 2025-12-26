@@ -1,0 +1,47 @@
+version: "3.8"
+
+services:
+  mininet:
+    build: ./mininet-topology
+    container_name: mininet
+    command: python3 /app/run_sdn_traditional.py
+    privileged: true
+    tty: true
+    depends_on:
+      - ryu-controller
+    networks:
+      - sdn-net
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - ./shared:/shared
+      - /tmp/.X11-unix:/tmp/.X11-unix
+
+  ryu-controller:
+    build: ./ryu-controller
+    container_name: ryu-controller
+    command: ryu-manager ryu.app.ofctl_rest ryu_traditional.py
+    ports:
+      - "6653:6653"
+      - "8080:8080"
+    networks:
+      - sdn-net
+    volumes:
+      - ./shared:/shared
+
+  # analysis:
+  #   build: 
+  #     context: .
+  #     dockerfile: analysis/Dockerfile
+  #   container_name: analysis
+  #   tty: true
+  #   depends_on:
+  #     - mininet
+  #   networks:
+  #     - sdn-net
+  #   volumes:
+  #     - ./shared:/shared
+
+networks:
+  sdn-net:
+    driver: bridge
