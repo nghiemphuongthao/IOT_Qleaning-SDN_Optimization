@@ -94,9 +94,10 @@ def run():
     queue_cfg = (
         "ovs-vsctl --if-exists clear Port {port} qos "
         "-- set Port {port} qos=@newqos "
-        "-- --id=@newqos create QoS type=linux-htb other-config:max-rate={max_rate} queues:0=@q0 queues:1=@q1 "
+        "-- --id=@newqos create QoS type=linux-htb other-config:max-rate={max_rate} queues:0=@q0 queues:1=@q1 queues:2=@q2 "
         "-- --id=@q0 create Queue other-config:min-rate={max_rate} other-config:max-rate={max_rate} "
-        "-- --id=@q1 create Queue other-config:max-rate={bulk_rate}"
+        "-- --id=@q1 create Queue other-config:max-rate={bulk_rate} "
+        "-- --id=@q2 create Queue other-config:max-rate={bulk_rate}"
     )
     g1.cmd(queue_cfg.format(port='g1-eth1', max_rate=qos_max_bps, bulk_rate=bulk_max_bps))
     g1.cmd(queue_cfg.format(port='g1-eth5', max_rate=qos_max_bps, bulk_rate=bulk_max_bps))

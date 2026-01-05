@@ -15,7 +15,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY ryu_traditional.py /app/ryu_traditional.py
-COPY q_agent.py model.py /app/
+# COPY q_agent.py model.py /app/
 
 EXPOSE 6653 8080
 

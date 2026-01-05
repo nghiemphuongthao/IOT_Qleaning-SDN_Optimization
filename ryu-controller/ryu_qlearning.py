@@ -12,11 +12,106 @@ from ryu.lib.packet import packet, ethernet, arp, ipv4, ether_types, tcp, udp
 from ryu.lib import hub
 from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 from webob import Response
-import numpy as np
-import random
-import csv
 import os
 import requests
+import numpy as np
+import random
+
+# --- CONFIGURATION ---
+CONGESTION_THRESHOLD = 200000 
+MONITOR_INTERVAL = 2
+
+SW256_DPID = 256
+CLOUD_PORT_MAIN = 1
+CLOUD_PORT_BACKUP = 5
+
+CRIT_UDP = int(os.environ.get("CRIT_UDP", "5001"))
+TEL_UDP = int(os.environ.get("TEL_UDP", "5002"))
+BULK_TCP = int(os.environ.get("BULK_TCP", "5003"))
+
+QUEUE_PRIO = 0
+QUEUE_BULK = 1
+METER_BULK_ID = 1
+
+# QoS Profiles for bulk traffic: (queue_id, meter_rate_kbps)
+QOS_PROFILES = [
+    (1, 800),   # Queue 1, 800 Kbps meter
+    (1, 1200),  # Queue 1, 1200 Kbps meter  
+    (1, 1600),  # Queue 1, 1600 Kbps meter
+    (2, 800),   # Queue 2, 800 Kbps meter
+    (2, 1200),  # Queue 2, 1200 Kbps meter
+    (2, 1600),  # Queue 2, 1600 Kbps meter
+]
+
+# --- LOCAL Q-LEARNING IMPLEMENTATION ---
+class QoSModel:
+    def __init__(self, congestion_threshold: float):
+        self.th = float(congestion_threshold)
+
+    def get_state(self, load_bps: float, drops: int) -> int:
+        try:
+            load = float(load_bps)
+        except Exception:
+            load = 0.0
+        try:
+            d = int(drops)
+        except Exception:
+            d = 0
+        if d > 0:
+            return 2
+        if load < 0.5 * self.th:
+            return 0
+        elif load < 1.0 * self.th:
+            return 1
+        else:
+            return 2
+
+    def get_reward(self, load_bps: float, drops: int) -> float:
+        try:
+            load = float(load_bps)
+        except Exception:
+            load = 0.0
+        try:
+            d = int(drops)
+        except Exception:
+            d = 0
+        
+        if d > 0:
+            return -10.0  # Strong penalty for drops
+        elif load < 0.5 * self.th:
+            return 1.0    # Reward for low load
+        elif load < 1.0 * self.th:
+            return 0.0    # Neutral for medium load
+        else:
+            return -2.0   # Penalty for high load
+
+class QAgent:
+    def __init__(self, n_states, n_actions, lr=0.1, gamma=0.9, epsilon=1.0, epsilon_min=0.05, epsilon_decay=0.995):
+        self.n_states = n_states
+        self.n_actions = n_actions
+        self.lr = lr
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.epsilon_min = epsilon_min
+        self.epsilon_decay = epsilon_decay
+        self.step = 0
+        self.q_table = np.zeros((n_states, n_actions))
+
+    def choose_action(self, state):
+        if random.random() < self.epsilon:
+            return random.randint(0, self.n_actions - 1)
+        return int(np.argmax(self.q_table[state]))
+
+    def learn(self, state, action, reward, next_state):
+        current_q = self.q_table[state][action]
+        max_next_q = np.max(self.q_table[next_state])
+        new_q = current_q + self.lr * (reward + self.gamma * max_next_q - current_q)
+        self.q_table[state][action] = new_q
+        
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+        
+        self.step += 1
 
 # --- CONFIGURATION ---
 CONGESTION_THRESHOLD = 200000 
@@ -58,7 +153,7 @@ class AntiLoopController(app_manager.RyuApp):
 
     def __init__(self, *args, **kwargs):
         super(AntiLoopController, self).__init__(*args, **kwargs)
-        self.logger.info(f"{Colors.GREEN}--> [SYSTEM] Controller V2 Debug Ready.{Colors.RESET}")
+        self.logger.info(f"{Colors.GREEN}--> [SYSTEM] Controller V3 with Local Q-Learning Ready.{Colors.RESET}")
         
         wsgi = kwargs['wsgi']
         wsgi.register(RestRouterController, {simple_switch_instance_name: self})
@@ -75,11 +170,22 @@ class AntiLoopController(app_manager.RyuApp):
 
         self.agent_url = os.environ.get("QLEARNING_AGENT_URL", "http://qlearning-agent:5000").rstrip("/")
         self.agent_timeout_s = float(os.environ.get("QLEARNING_AGENT_TIMEOUT_S", "0.3"))
-        self.flow_idle_timeout = int(os.environ.get("FLOW_IDLE_TIMEOUT", "20"))
-        self.flow_hard_timeout = int(os.environ.get("FLOW_HARD_TIMEOUT", "0"))
         self._agent_session = requests.Session()
 
         self.last_agent_choice = {}
+        
+        # Meter management for dynamic QoS
+        self._meters_installed = set()
+        self._meter_key_to_id = {}
+        self._next_meter_id = 10
+        self.flow_idle_timeout = int(os.environ.get("FLOW_IDLE_TIMEOUT", "20"))
+        self.flow_hard_timeout = int(os.environ.get("FLOW_HARD_TIMEOUT", "0"))
+
+        # Initialize local Q-learning
+        self.model = QoSModel(CONGESTION_THRESHOLD)
+        self.agent = QAgent(n_states=3, n_actions=len(QOS_PROFILES), epsilon=float(os.environ.get("EPSILON", "0.1")))
+        self._flow_states = {}  # Track state per flow
+        self._flow_actions = {}  # Track last action per flow
 
         self.static_arp_table = {
             "10.0.100.2": self.CLOUD_MAC,
@@ -130,30 +236,62 @@ class AntiLoopController(app_manager.RyuApp):
 
     def _agent_choose_out_port(self, dpid: int, dst_prefix: str, candidates):
         try:
+            candidate_actions = []
+            action_idx = 0
+            local_action_map = {}
+            for port in candidates:
+                for queue_id, meter_rate in QOS_PROFILES:
+                    local_action_map[int(action_idx)] = (int(port), int(queue_id), int(meter_rate))
+                    candidate_actions.append(
+                        {
+                            "action_idx": int(action_idx),
+                            "out_port": int(port),
+                            "queue_id": int(queue_id),
+                            "meter_rate_kbps": int(meter_rate),
+                        }
+                    )
+                    action_idx += 1
+
             resp = self._agent_session.post(
                 f"{self.agent_url}/act",
-                json={"dpid": int(dpid), "dst_prefix": str(dst_prefix), "candidates": list(candidates)},
+                json={"dpid": int(dpid), "dst_prefix": str(dst_prefix), "candidates": candidate_actions},
                 timeout=self.agent_timeout_s,
             )
             if resp.status_code != 200:
                 return None
             data = resp.json() if resp.content else {}
+
+            chosen_action_idx = data.get("action")
             out_port = data.get("out_port")
+            queue_id = data.get("queue_id")
+            meter_rate = data.get("meter_rate_kbps")
+
+            if out_port is None or queue_id is None or meter_rate is None:
+                action_details = local_action_map.get(int(chosen_action_idx)) if chosen_action_idx is not None else None
+                if not action_details:
+                    return None
+                out_port, queue_id, meter_rate = action_details
+            else:
+                out_port, queue_id, meter_rate = int(out_port), int(queue_id), int(meter_rate)
+
             try:
                 self.last_agent_choice[f"{int(dpid)}:{dst_prefix}"] = {
                     "ts": time.time(),
                     "dpid": int(dpid),
                     "dst_prefix": str(dst_prefix),
                     "candidates": [int(p) for p in list(candidates)],
-                    "out_port": (None if out_port is None else int(out_port)),
+                    "out_port": int(out_port),
+                    "queue_id": int(queue_id),
+                    "meter_rate_kbps": int(meter_rate),
                     "state": data.get("state"),
-                    "action": data.get("action"),
+                    "action": (None if chosen_action_idx is None else int(chosen_action_idx)),
                     "epsilon": data.get("epsilon"),
                     "step": data.get("step"),
                 }
             except Exception:
                 pass
-            return int(out_port) if out_port is not None else None
+
+            return int(out_port), int(queue_id), int(meter_rate)
         except Exception:
             return None
 
@@ -206,25 +344,36 @@ class AntiLoopController(app_manager.RyuApp):
             key = (dpid, port_no)
             rx_bytes = stat.rx_bytes
             tx_bytes = stat.tx_bytes
+            rx_dropped = getattr(stat, "rx_dropped", 0)
+            tx_dropped = getattr(stat, "tx_dropped", 0)
             
             if key in self.prev_stats:
-                prev_rx, prev_tx, prev_time = self.prev_stats[key]
+                prev = self.prev_stats[key]
+                if isinstance(prev, tuple) and len(prev) >= 5:
+                    prev_rx, prev_tx, prev_rx_dropped, prev_tx_dropped, prev_time = prev[:5]
+                else:
+                    prev_rx, prev_tx, prev_time = prev
+                    prev_rx_dropped, prev_tx_dropped = 0, 0
                 duration = time.time() - prev_time
                 if duration > 0:
                     speed_tx = (tx_bytes - prev_tx) / duration
                     speed_rx = (rx_bytes - prev_rx) / duration
                     total_speed = speed_tx + speed_rx
+                    drops = int((rx_dropped - prev_rx_dropped) + (tx_dropped - prev_tx_dropped))
+                    if drops < 0:
+                        drops = 0
                     
                     self.q_port_load[key] = total_speed
+                    self.q_drops[key] = drops
 
-                    self._agent_observe(dpid=dpid, port=port_no, qid=None, load_bps=total_speed, drops=0)
+                    self._agent_observe(dpid=dpid, port=port_no, qid=None, load_bps=total_speed, drops=drops)
                     
                     # RED ALERT LOGIC
                     if speed_tx > CONGESTION_THRESHOLD or speed_rx > CONGESTION_THRESHOLD:
                         max_speed = max(speed_tx, speed_rx) / 1000000
                         print(f"{Colors.RED}[!] CONGESTION ALERT: Switch {dpid} Port {port_no} | Load: {max_speed:.2f} MB/s{Colors.RESET}")
             
-            self.prev_stats[key] = (rx_bytes, tx_bytes, time.time())
+            self.prev_stats[key] = (rx_bytes, tx_bytes, rx_dropped, tx_dropped, time.time())
 
     @set_ev_cls(ofp_event.EventOFPQueueStatsReply, MAIN_DISPATCHER)
     def _queue_stats_reply_handler(self, ev):
@@ -436,6 +585,22 @@ class AntiLoopController(app_manager.RyuApp):
         )
         datapath.send_msg(req)
 
+    def _ensure_meter(self, datapath, rate_kbps: int):
+        key = (int(datapath.id), int(rate_kbps))
+        meter_id = self._meter_key_to_id.get(key)
+        if meter_id is None:
+            meter_id = int(self._next_meter_id)
+            self._next_meter_id += 1
+            self._meter_key_to_id[key] = int(meter_id)
+
+        if key not in self._meters_installed:
+            try:
+                self.add_meter(datapath, meter_id=int(meter_id), rate_kbps=int(rate_kbps), burst_kb=200)
+                self._meters_installed.add(key)
+            except Exception:
+                pass
+        return int(meter_id)
+
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         msg = ev.msg
@@ -502,9 +667,19 @@ class AntiLoopController(app_manager.RyuApp):
                     if default_p is not None:
                         candidates.append(int(default_p))
 
-            agent_out = self._agent_choose_out_port(dpid=dpid, dst_prefix=subnet_key, candidates=candidates)
-            if agent_out is not None:
-                out_port = agent_out
+            chosen_queue_id = None
+            chosen_meter_rate = None
+            if l4_proto == "tcp" and l4_dst_port == BULK_TCP:
+                agent_out = self._agent_choose_out_port(dpid=dpid, dst_prefix=subnet_key, candidates=candidates)
+                if agent_out is not None:
+                    out_port, chosen_queue_id, chosen_meter_rate = agent_out
+            else:
+                agent_out = self._agent_choose_out_port(dpid=dpid, dst_prefix=subnet_key, candidates=candidates)
+                if agent_out is not None:
+                    try:
+                        out_port = int(agent_out[0])
+                    except Exception:
+                        pass
             
             if out_port:
                 dst_mac = self.static_arp_table.get(dst_ip)
@@ -522,7 +697,10 @@ class AntiLoopController(app_manager.RyuApp):
                         actions.append(parser.OFPActionSetQueue(QUEUE_PRIO))
                     elif l4_proto == "tcp" and l4_dst_port == BULK_TCP:
                         use_meter = True
-                        actions.append(parser.OFPActionSetQueue(QUEUE_BULK))
+                        if chosen_queue_id is not None:
+                            actions.append(parser.OFPActionSetQueue(int(chosen_queue_id)))
+                        else:
+                            actions.append(parser.OFPActionSetQueue(QUEUE_BULK))
 
                     actions.append(parser.OFPActionOutput(out_port))
                     
@@ -543,13 +721,18 @@ class AntiLoopController(app_manager.RyuApp):
                     else:
                         match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=dst_ip)
 
+                    meter_id = None
                     if use_meter:
+                        if chosen_meter_rate is not None:
+                            meter_id = self._ensure_meter(datapath, rate_kbps=int(chosen_meter_rate))
+                        else:
+                            meter_id = int(METER_BULK_ID)
                         self.add_flow_with_meter(
                             datapath,
                             20,
                             match,
                             actions,
-                            meter_id=METER_BULK_ID,
+                            meter_id=int(meter_id),
                             idle_timeout=self.flow_idle_timeout,
                             hard_timeout=self.flow_hard_timeout,
                         )

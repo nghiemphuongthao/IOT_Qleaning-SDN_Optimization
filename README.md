@@ -41,6 +41,7 @@ Key knobs:
 RUN_SECONDS=90 \
 BULK_METER_KBPS=1200 \
 BULK_MAX_BPS=1200000 \
+BULK_QOS_PROFILES="1:800,1:1200,1:1600,2:800,2:1200,2:1600" \
 docker compose -f docker-compose.sdn-qlearning.yml up -d --build --force-recreate
 ```
 
@@ -83,6 +84,15 @@ make report
 - `RUN_SECONDS` (default `90`)
 - `BULK_METER_KBPS` (default `1200`)
 - `BULK_MAX_BPS` (default `1200000`)
+- `BULK_QOS_PROFILES` (default `1:800,1:1200,1:1600,2:800,2:1200,2:1600`)
+  - Comma-separated list of `queue:rate` pairs for bulk traffic QoS profiles
+  - Example: `1:800,1:1200,1:1600,2:800,2:1200,2:1600` creates 6 profiles:
+    - Queue 1 with 800 Kbps meter
+    - Queue 1 with 1200 Kbps meter  
+    - Queue 1 with 1600 Kbps meter
+    - Queue 2 with 800 Kbps meter
+    - Queue 2 with 1200 Kbps meter
+    - Queue 2 with 1600 Kbps meter
 
 ## Observability
 

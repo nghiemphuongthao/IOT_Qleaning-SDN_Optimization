@@ -16,7 +16,7 @@ def main():
         print("Q-learning log not found:", log_path)
         return
 
-    df = pd.read_csv(log_path)
+    df = pd.read_csv(log_path, engine="python", on_bad_lines="skip")
     if df.empty:
         print("Q-learning log is empty:", log_path)
         return
