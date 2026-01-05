@@ -317,7 +317,7 @@ class AntiLoopController(app_manager.RyuApp):
         while True:
             try:    
                 for dp in list(self.datapaths.values()):
-                    if dp.id in [256, 768]:
+                    if dp.id in [256, 512, 768]:
                         self._request_stats(dp)
                 hub.sleep(0.3)
             except Exception: 
@@ -669,17 +669,10 @@ class AntiLoopController(app_manager.RyuApp):
 
             chosen_queue_id = None
             chosen_meter_rate = None
-            if l4_proto == "tcp" and l4_dst_port == BULK_TCP:
+            if (l4_dst_port == BULK_TCP) and (l4_proto in ["tcp", "udp"]):
                 agent_out = self._agent_choose_out_port(dpid=dpid, dst_prefix=subnet_key, candidates=candidates)
                 if agent_out is not None:
                     out_port, chosen_queue_id, chosen_meter_rate = agent_out
-            else:
-                agent_out = self._agent_choose_out_port(dpid=dpid, dst_prefix=subnet_key, candidates=candidates)
-                if agent_out is not None:
-                    try:
-                        out_port = int(agent_out[0])
-                    except Exception:
-                        pass
             
             if out_port:
                 dst_mac = self.static_arp_table.get(dst_ip)
@@ -695,7 +688,7 @@ class AntiLoopController(app_manager.RyuApp):
                     use_meter = False
                     if l4_proto == "udp" and l4_dst_port in [CRIT_UDP, TEL_UDP]:
                         actions.append(parser.OFPActionSetQueue(QUEUE_PRIO))
-                    elif l4_proto == "tcp" and l4_dst_port == BULK_TCP:
+                    elif (l4_dst_port == BULK_TCP) and (l4_proto in ["tcp", "udp"]):
                         use_meter = True
                         if chosen_queue_id is not None:
                             actions.append(parser.OFPActionSetQueue(int(chosen_queue_id)))

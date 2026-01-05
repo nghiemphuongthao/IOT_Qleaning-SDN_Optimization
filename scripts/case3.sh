@@ -65,7 +65,7 @@ docker compose -f "${COMPOSE_FILE}" up -d \
 wait_ryu_ready
 wait_agent_ready
 wait_mininet_ready
-docker exec mininet python3 run_sdn_qlearning.py
+docker exec -e RUN_SECONDS="${RUN_SECONDS}" -e BULK_MAX_BPS="${BULK_MAX_BPS}" mininet python3 run_sdn_qlearning.py
 echo "[run] running SDN Q-learning for ${RUN_SECONDS}s..."
 sleep "${RUN_SECONDS}"
 

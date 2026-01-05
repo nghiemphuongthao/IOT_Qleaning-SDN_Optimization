@@ -25,9 +25,9 @@ class QoSModel:
             d = 0
         if d > 0:
             return 2
-        if load < 0.5 * self.th:
+        if load < 0.4 * self.th:
             return 0
-        if load < 1.0 * self.th:
+        if load <= 1.0 * self.th:
             return 1
         return 2
 
@@ -48,29 +48,34 @@ class QoSModel:
             d = 0
 
         if d > 0:
-            r = -50.0
-        elif load < 0.5 * self.th:
-            r = 20.0
-        elif load < 1.0 * self.th:
-            r = 10.0
+            r = -80.0 - 4.0 * float(d)
         else:
-            r = -5.0
+            th = float(self.th) if float(self.th) > 0 else 1.0
+            ratio = float(load) / th
+            if ratio < 0:
+                ratio = 0.0
+
+            if ratio <= 1.0:
+                r = 20.0 + 80.0 * ratio - 10.0 * (1.0 - ratio) * (1.0 - ratio)
+            else:
+                over = ratio - 1.0
+                r = -20.0 - 120.0 * over * over
 
         if stable_bonus:
-            r += 5.0
+            r += 10.0
         if backup_penalty:
-            r -= 3.0
+            r -= 10.0
         return float(r)
 
 
 class QAgent:
     def __init__(
         self,
-        lr: float = 0.1,
-        gamma: float = 0.9,
+        lr: float = 0.15,
+        gamma: float = 0.95,
         epsilon: float = 1.0,
-        epsilon_min: float = 0.05,
-        epsilon_decay: float = 0.995,
+        epsilon_min: float = 0.001,
+        epsilon_decay: float = 0.99,
     ):
         self.lr = float(lr)
         self.gamma = float(gamma)
@@ -157,7 +162,7 @@ class StateStore:
         return items
 
 
-THRESHOLD_BPS = float(os.environ.get("CONGESTION_THRESHOLD_BPS", "200000"))
+THRESHOLD_BPS = float(os.environ.get("CONGESTION_THRESHOLD_BPS", "100000"))
 MODEL = QoSModel(congestion_threshold=THRESHOLD_BPS)
 
 METRICS_TTL_S = float(os.environ.get("QL_METRICS_TTL_S", "5"))
@@ -170,16 +175,16 @@ if _backup_ports_env:
     except Exception:
         QL_BACKUP_PORTS = set()
 AGENT = QAgent(
-    lr=float(os.environ.get("QL_LR", "0.1")),
-    gamma=float(os.environ.get("QL_GAMMA", "0.9")),
+    lr=float(os.environ.get("QL_LR", "0.15")),
+    gamma=float(os.environ.get("QL_GAMMA", "0.95")),
     epsilon=float(os.environ.get("QL_EPSILON", "1.0")),
-    epsilon_min=float(os.environ.get("QL_EPSILON_MIN", "0.05")),
-    epsilon_decay=float(os.environ.get("QL_EPSILON_DECAY", "0.995")),
+    epsilon_min=float(os.environ.get("QL_EPSILON_MIN", "0.001")),
+    epsilon_decay=float(os.environ.get("QL_EPSILON_DECAY", "0.99")),
 )
 STORE = StateStore()
 
 PERSIST_PATH = Path(os.environ.get("QL_PERSIST_PATH", "/shared/logs/qlearning_qtables.json"))
-PERSIST_EVERY_STEPS = int(os.environ.get("QL_PERSIST_EVERY_STEPS", "10"))
+PERSIST_EVERY_STEPS = int(os.environ.get("QL_PERSIST_EVERY_STEPS", "5"))
 
 LOG_PATH = Path(os.environ.get("QL_LOG_PATH", "/shared/raw/qlearning_agent_log.csv"))
 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)

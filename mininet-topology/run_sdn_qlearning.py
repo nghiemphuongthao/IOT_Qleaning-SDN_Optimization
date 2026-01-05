@@ -139,10 +139,20 @@ def run():
 )
         info(f" -> {h} started sending {t}\n")
 
+    total = int(os.environ.get("RUN_SECONDS", "90"))
+    bulk_bps = int(float(os.environ.get("BULK_MAX_BPS", "1200000")))
+    cloud.cmd("iperf -s -u -p 5003 > /shared/logs/iperf_server_5003.log 2>&1 &")
+    for src in ["h1", "h6"]:
+        try:
+            net.get(src).cmd(
+                f"iperf -c 10.0.100.2 -u -p 5003 -t {total} -i 5 -b {bulk_bps} > /shared/logs/iperf_{src}.log 2>&1 &"
+            )
+        except Exception:
+            pass
+
     if os.environ.get("INTERACTIVE", "0") == "1":
         CLI(net)
     else:
-        total = int(os.environ.get("RUN_SECONDS", "300"))
         time.sleep(total + 5)
     
     os.system("pkill -f iot_server.py")

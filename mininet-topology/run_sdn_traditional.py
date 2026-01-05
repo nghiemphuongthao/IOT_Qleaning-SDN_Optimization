@@ -41,9 +41,9 @@ class SDNIoTTreeTopo(Topo):
         # Port 3: Ra S2 (Zone 2)
         self.addLink(g1, s2, port1=3, bw=bw_router)
         # Port 4: Ra G2 (Zone 3)
-        self.addLink(g1, g2, port1=4, port2=1, bw=50)
+        self.addLink(g1, g2, port1=4, port2=1, bw=10)
         # Port 5: Ra G3 (Zone 4 + Backup)
-        self.addLink(g1, g3, port1=5, port2=1, bw=10)
+        self.addLink(g1, g3, port1=5, port2=1, bw=50)
 
         self.addLink(g2, s3, port1=2, bw=bw_router)
 
@@ -86,6 +86,22 @@ def run():
 
     net.start()
     net.pingAll()
+
+    g1 = net.get('g1')
+    g3 = net.get('g3')
+    qos_max_bps = int(float(os.environ.get('QOS_MAX_BPS', '100000000')))
+    bulk_max_bps = int(float(os.environ.get('BULK_MAX_BPS', '1200000')))
+    queue_cfg = (
+        "ovs-vsctl --if-exists clear Port {port} qos "
+        "-- set Port {port} qos=@newqos "
+        "-- --id=@newqos create QoS type=linux-htb other-config:max-rate={max_rate} queues:0=@q0 queues:1=@q1 queues:2=@q2 "
+        "-- --id=@q0 create Queue other-config:min-rate={max_rate} other-config:max-rate={max_rate} "
+        "-- --id=@q1 create Queue other-config:max-rate={bulk_rate} "
+        "-- --id=@q2 create Queue other-config:max-rate={bulk_rate}"
+    )
+    g1.cmd(queue_cfg.format(port='g1-eth1', max_rate=qos_max_bps, bulk_rate=bulk_max_bps))
+    g1.cmd(queue_cfg.format(port='g1-eth5', max_rate=qos_max_bps, bulk_rate=bulk_max_bps))
+    g3.cmd(queue_cfg.format(port='g3-eth3', max_rate=qos_max_bps, bulk_rate=bulk_max_bps))
     
     cloud = net.get('cloud')
     info("[*] Disabling rp_filter on Cloud...\n")
@@ -99,7 +115,7 @@ def run():
     cloud.cmd("sysctl -w net.ipv4.conf.cloud-eth0.rp_filter=0")
     cloud.cmd("sysctl -w net.ipv4.conf.cloud-eth1.rp_filter=0")
     
-    cloud.cmd("ip route add 10.0.0.0/16 via 10.0.100.1")
+    cloud.cmd("ip route replace 10.0.0.0/16 via 10.0.100.1")
 
     info("\n=== SDN L3 TOPOLOGY STARTED ===\n")
     time.sleep(2)
@@ -108,25 +124,35 @@ def run():
     info("[*] Starting Services...\n")
     cloud.cmd("mkdir -p /shared/raw /shared/logs")
     cloud.cmd("python3 /app/traffic-generator/iot_server.py --bind 0.0.0.0 --out /shared/raw/sdn_traditional_server.csv > /shared/logs/iot_server.log 2>&1 &")
+    # cloud.cmd("iperf -s -u -p 5001 &") 
     
     sensors = {'h1': 'temp', 'h2': 'humid', 'h3': 'motion', 'h4': 'temp', 'h10': 'humid'}
     for h, t in sensors.items():
         node = net.get(h)
         node.cmd(
-            f"python3 /app/traffic-generator/iot_sensor.py "
-            f"--name {h} "
-            f"--server 10.0.100.2 "
-            f"--case sdn_traditional "
-            f"--out /shared/raw/sdn_traditional_{h}.csv "
-            f"> /shared/logs/{h}_sensor.log 2>&1 &"
-        )
+  f"python3 /app/traffic-generator/iot_sensor.py "
+  f"--name {h} "
+  f"--server 10.0.100.2 "
+  f"--case sdn_traditional "
+  f"--out /shared/raw/sdn_traditional_{h}.csv "
+  f"> /shared/logs/{h}_sensor.log 2>&1 &"
+)
         info(f" -> {h} started sending {t}\n")
+
+    total = int(os.environ.get("RUN_SECONDS", "90"))
+    bulk_bps = int(float(os.environ.get("BULK_MAX_BPS", "1200000")))
+    cloud.cmd("iperf -s -u -p 5003 > /shared/logs/iperf_server_5003.log 2>&1 &")
+    for src in ["h1", "h6"]:
+        try:
+            net.get(src).cmd(
+                f"iperf -c 10.0.100.2 -u -p 5003 -t {total} -i 5 -b {bulk_bps} > /shared/logs/iperf_{src}.log 2>&1 &"
+            )
+        except Exception:
+            pass
 
     if os.environ.get("INTERACTIVE", "0") == "1":
         CLI(net)
-        net.pingAll()
     else:
-        total = int(os.environ.get("RUN_SECONDS", "300"))
         time.sleep(total + 5)
     
     os.system("pkill -f iot_server.py")

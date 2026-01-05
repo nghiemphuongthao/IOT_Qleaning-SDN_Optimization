@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUN_SECONDS=300
+RUN_SECONDS="${RUN_SECONDS:-300}"
 
 wait_mininet_ready() {
   echo "[wait] waiting for mininet container to be running..."
@@ -42,7 +42,7 @@ docker compose -f docker-compose.yml up -d \
 
 wait_ryu_ready
 wait_mininet_ready
-docker exec mininet python3 run_sdn_traditional.py
+docker exec -e RUN_SECONDS="${RUN_SECONDS}" mininet python3 run_sdn_traditional.py
 
 echo "[run] running SDN traditional for ${RUN_SECONDS}s..."
 sleep "${RUN_SECONDS}"

@@ -57,7 +57,7 @@ class IoTStaticTopo(Topo):
 
         # G1 <-> Cloud
         self.addLink(g1, cloud, intfName1="g1-eth100",
-                     params1={"ip": "10.0.100.1/24"}, bw=bw_router)
+                     params1={"ip": "10.0.100.1/24"}, bw=1.5, max_queue_size=100)
 
         # Hosts
         # S1 Hosts
@@ -138,11 +138,22 @@ def run():
             f"--server {CLOUD_IP} "
             f"--case {CASE} "
             f"--out /shared/raw/{CASE}_{hostname}.csv "
-            # f"> /shared/logs/{hostname}_sensor.log 2>&1 &"
+            f"> /shared/logs/{hostname}_sensor.log 2>&1 &"
         )
 
         h.cmd(cmd)
         info(f" -> {hostname} started ({stype})\n")
+
+    total = int(os.environ.get("RUN_SECONDS", "90"))
+    bulk_bps = int(float(os.environ.get("BULK_MAX_BPS", "1200000")))
+    cloud.cmd("iperf -s -u -p 5003 > /shared/logs/iperf_server_5003.log 2>&1 &")
+    for src in ["h1", "h6"]:
+        try:
+            net.get(src).cmd(
+                f"iperf -c {CLOUD_IP} -u -p 5003 -t {total} -i 5 -b {bulk_bps} > /shared/logs/iperf_{src}.log 2>&1 &"
+            )
+        except Exception:
+            pass
 
     info("\n------------------------------------------------\n")
     info("Simulation Running!\n")
@@ -153,11 +164,12 @@ def run():
     if os.environ.get("INTERACTIVE", "0") == "1":
         CLI(net)
     else:
-        total = int(os.environ.get("RUN_SECONDS", "300"))
+        total = int(os.environ.get("RUN_SECONDS", "90"))
         time.sleep(total + 5)
     
     os.system("pkill -f iot_server.py")
     os.system("pkill -f iot_sensor.py")
+    os.system("pkill -f iperf")
     net.stop()
 
 if __name__ == "__main__":

@@ -5,4 +5,4 @@ source "$(dirname "$0")/common.sh"
 run_case \
   docker-compose.no-sdn.yml \
   "CASE1 no_sdn" \
-  docker exec mininet python3 run_no_sdn.py
+  docker exec -e RUN_SECONDS="${RUN_SECONDS}" mininet python3 run_no_sdn.py
