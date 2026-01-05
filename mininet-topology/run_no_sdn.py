@@ -138,7 +138,7 @@ def run():
             f"--server {CLOUD_IP} "
             f"--case {CASE} "
             f"--out /shared/raw/{CASE}_{hostname}.csv "
-            f"> /shared/logs/{hostname}_sensor.log 2>&1 &"
+            # f"> /shared/logs/{hostname}_sensor.log 2>&1 &"
         )
 
         h.cmd(cmd)
@@ -153,7 +153,7 @@ def run():
     if os.environ.get("INTERACTIVE", "0") == "1":
         CLI(net)
     else:
-        total = int(os.environ.get("RUN_SECONDS", "90"))
+        total = int(os.environ.get("RUN_SECONDS", "300"))
         time.sleep(total + 5)
     
     os.system("pkill -f iot_server.py")

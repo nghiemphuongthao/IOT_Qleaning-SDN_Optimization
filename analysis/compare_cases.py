@@ -12,7 +12,7 @@ summary_df = pd.read_csv(os.path.join(results_dir, 'summary.csv'))
 cols = [
     'bulk_throughput_mbps',
     'critical_loss_pct',
-    'telemetry_loss_pct',
+    # 'telemetry_loss_pct',
     'udp_total_loss_pct',
     'critical_rtt_ms',
     'telemetry_rtt_ms',
@@ -34,7 +34,7 @@ def _bar(col, title, ylabel, filename):
 
 _bar('bulk_throughput_mbps', 'Bulk Throughput (server mean)', 'Mbps', 'bulk_throughput_mbps.png')
 _bar('critical_loss_pct', 'Critical UDP Loss', '%', 'critical_loss_pct.png')
-_bar('telemetry_loss_pct', 'Telemetry UDP Loss', '%', 'telemetry_loss_pct.png')
+# _bar('telemetry_loss_pct', 'Telemetry UDP Loss', '%', 'telemetry_loss_pct.png')
 _bar('udp_total_loss_pct', 'Total UDP Loss (all classes)', '%', 'udp_total_loss_pct.png')
 _bar('critical_rtt_ms', 'Critical UDP RTT', 'ms', 'critical_rtt_ms.png')
 _bar('telemetry_rtt_ms', 'Telemetry UDP RTT', 'ms', 'telemetry_rtt_ms.png')

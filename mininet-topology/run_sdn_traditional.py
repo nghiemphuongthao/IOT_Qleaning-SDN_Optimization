@@ -85,6 +85,7 @@ def run():
     c0 = net.addController('c0', controller=RemoteController, ip='ryu-controller', port=6653)
 
     net.start()
+    net.pingAll()
     
     cloud = net.get('cloud')
     info("[*] Disabling rp_filter on Cloud...\n")
@@ -123,8 +124,9 @@ def run():
 
     if os.environ.get("INTERACTIVE", "0") == "1":
         CLI(net)
+        net.pingAll()
     else:
-        total = int(os.environ.get("RUN_SECONDS", "90"))
+        total = int(os.environ.get("RUN_SECONDS", "300"))
         time.sleep(total + 5)
     
     os.system("pkill -f iot_server.py")

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUN_SECONDS=90
+RUN_SECONDS=300
 
 wait_mininet_ready() {
   echo "[wait] waiting for mininet container to be running..."

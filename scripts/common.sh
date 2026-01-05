@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUN_SECONDS="${RUN_SECONDS:-90}"
+RUN_SECONDS="${RUN_SECONDS:-300}"
 BULK_METER_KBPS="${BULK_METER_KBPS:-1200}"
 BULK_MAX_BPS="${BULK_MAX_BPS:-1200000}"
 

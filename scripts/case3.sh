@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ===== Config =====
-RUN_SECONDS="${RUN_SECONDS:-90}"
+RUN_SECONDS="${RUN_SECONDS:-300}"
 BULK_METER_KBPS="${BULK_METER_KBPS:-1200}"
 BULK_MAX_BPS="${BULK_MAX_BPS:-1200000}"
 COMPOSE_FILE="docker-compose.sdn-qlearning.yml"
